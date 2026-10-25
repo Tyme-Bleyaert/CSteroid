@@ -1,4 +1,4 @@
-<img src="assets/asset_exports/asset1.png" alt="CSteroid" width="600" height="161">
+<img src="assets/asset_exports/asset1.jpg" alt="CSteroid" width="600" height="161">
 
 [![CI](https://github.com/Tyme-Bleyaert/CSteroid/actions/workflows/ci.yml/badge.svg)](https://github.com/Tyme-Bleyaert/CSteroid/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/CSteroid.Core.svg?label=NuGet)](https://www.nuget.org/packages/CSteroid.Core)
