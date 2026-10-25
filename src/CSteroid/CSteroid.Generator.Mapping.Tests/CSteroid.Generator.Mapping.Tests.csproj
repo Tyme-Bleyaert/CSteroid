@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.10.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CSteroid.Core\CSteroid.Core.csproj" />
+    <ProjectReference Include="..\CSteroid.Generator.Testing\CSteroid.Generator.Testing.csproj" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.Mapping\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Mapping.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.Shared\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Shared.dll" />
+    <!-- Build-order only: the raw Reference paths above do not create project dependencies. -->
+    <ProjectReference Include="..\CSteroid.Generator\CSteroid.Generator.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.Mapping\CSteroid.Generator.Mapping.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.Shared\CSteroid.Generator.Shared.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

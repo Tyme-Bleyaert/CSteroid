@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="../../README.md" />
+  </Folder>
+  <Project Path="CSteroid.Benchmarks/CSteroid.Benchmarks.csproj" />
+  <Project Path="CSteroid.Core/CSteroid.Core.csproj" />
+  <Project Path="CSteroid.Orm/CSteroid.Orm.csproj" />
+  <Project Path="CSteroid.Generator/CSteroid.Generator.csproj" />
+  <Project Path="CSteroid.Generator.CosmosDB/CSteroid.Generator.CosmosDB.csproj" />
+  <Project Path="CSteroid.Generator.Dapper/CSteroid.Generator.Dapper.csproj" />
+  <Project Path="CSteroid.Generator.EFCore/CSteroid.Generator.EFCore.csproj" />
+  <Project Path="CSteroid.Generator.Mapping/CSteroid.Generator.Mapping.csproj" />
+  <Project Path="CSteroid.Generator.MongoDB/CSteroid.Generator.MongoDB.csproj" />
+  <Project Path="CSteroid.Generator.PostgreSQL/CSteroid.Generator.PostgreSQL.csproj" />
+  <Project Path="CSteroid.Generator.Shared/CSteroid.Generator.Shared.csproj" />
+  <Project Path="CSteroid.Generator.Testing/CSteroid.Generator.Testing.csproj" />
+  <Project Path="CSteroid.Generator.Validation/CSteroid.Generator.Validation.csproj" />
+  <Project Path="CSteroid.Generator.CosmosDB.Tests/CSteroid.Generator.CosmosDB.Tests.csproj" />
+  <Project Path="CSteroid.Generator.Dapper.Tests/CSteroid.Generator.Dapper.Tests.csproj" />
+  <Project Path="CSteroid.Generator.EFCore.Tests/CSteroid.Generator.EFCore.Tests.csproj" />
+  <Project Path="CSteroid.Generator.Mapping.Tests/CSteroid.Generator.Mapping.Tests.csproj" />
+  <Project Path="CSteroid.Generator.MongoDB.Tests/CSteroid.Generator.MongoDB.Tests.csproj" />
+  <Project Path="CSteroid.Generator.PostgreSQL.Tests/CSteroid.Generator.PostgreSQL.Tests.csproj" />
+  <Project Path="CSteroid.Generator.Tests/CSteroid.Generator.Tests.csproj" />
+  <Project Path="CSteroid.Generator.Validation.Tests/CSteroid.Generator.Validation.Tests.csproj" />
+  <Project Path="CSteroid/CSteroid.csproj" />
+
+</Solution>

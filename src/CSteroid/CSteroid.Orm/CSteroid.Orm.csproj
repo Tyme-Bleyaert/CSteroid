@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>CSteroid ORM target selection: OrmTarget flags enum and OrmTargetAttribute used to route models to the matching CSteroid ORM generator package.</Description>
+    <PackageTags>csteroid source-generator roslyn models mapping validation</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CSteroid.Core\CSteroid.Core.csproj" />
+  </ItemGroup>
+
+</Project>

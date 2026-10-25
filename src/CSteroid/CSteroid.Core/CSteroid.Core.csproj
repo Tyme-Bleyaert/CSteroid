@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>Public API for CSteroid: [CanonicalModel] attributes, enums, IMapper and the validation rule engine.</Description>
+    <PackageTags>csteroid source-generator models validation</PackageTags>
+  </PropertyGroup>
+
+</Project>
