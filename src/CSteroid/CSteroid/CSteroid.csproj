@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Meta-package: one PackageReference gets the common CSteroid setup —
+    attributes/runtime (Core) plus the model, mapping and validation generators.
+    The ORM generators (EFCore, Dapper, ...) stay separate: install only the one
+    you use. Analyzer dependencies flow transitively through this package.
+  -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsPackable>true</IsPackable>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <Description>All-in-one CSteroid package: model generation, mapping and validation source generators plus the CSteroid.Core runtime. Add CSteroid.Generator.EFCore (or another ORM package) if you need ORM-flavoured models.</Description>
+    <PackageTags>csteroid source-generator models mapping validation</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CSteroid.Core\CSteroid.Core.csproj" />
+    <ProjectReference Include="..\CSteroid.Generator\CSteroid.Generator.csproj" />
+    <ProjectReference Include="..\CSteroid.Generator.Mapping\CSteroid.Generator.Mapping.csproj" />
+    <ProjectReference Include="..\CSteroid.Generator.Validation\CSteroid.Generator.Validation.csproj" />
+  </ItemGroup>
+
+</Project>

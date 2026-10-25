@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+    <CompilerGeneratedFilesOutputPath>obj/Generated</CompilerGeneratedFilesOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HexagonalDdd.Order.Metadata\HexagonalDdd.Order.Metadata.csproj" />
+    <ProjectReference Include="..\HexagonalDdd.Customer.Metadata\HexagonalDdd.Customer.Metadata.csproj" />
+    <ProjectReference Include="..\HexagonalDdd.Order.Application\HexagonalDdd.Order.Application.csproj" />
+    <ProjectReference Include="..\HexagonalDdd.Customer.Application\HexagonalDdd.Customer.Application.csproj" />
+    <ProjectReference Include="..\..\..\src\CSteroid\CSteroid.Generator\CSteroid.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\..\src\CSteroid\CSteroid.Generator.Mapping\CSteroid.Generator.Mapping.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\..\src\CSteroid\CSteroid.Generator.Shared\CSteroid.Generator.Shared.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

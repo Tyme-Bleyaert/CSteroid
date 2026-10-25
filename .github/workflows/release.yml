@@ -1,0 +1,131 @@
+name: Release
+
+# Started by hand: Actions tab -> Release -> "Run workflow" -> type a version.
+#
+# Flow:
+#   1. build job   : checks the version, builds, tests, packs (no secrets here)
+#   2. approval    : GitHub pauses until a reviewer clicks "Approve"
+#   3. publish job : pushes to NuGet.org, then creates the tag + GitHub Release
+#
+# The tag is only created AFTER NuGet succeeded, so you never get a
+# tag for a version that failed to publish.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without the v, e.g. 1.2.3 or 1.2.3-beta.1"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  SOLUTION: src/CSteroid/CSteroid.slnx
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  build:
+    name: Build, test and pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Releases may only be made from main.
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Check the version looks right
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version must look like 1.2.3 or 1.2.3-beta.1"
+            exit 1
+          fi
+
+      - name: Make sure the tag does not exist yet
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore "$SOLUTION"
+
+      - name: Build
+        run: dotnet build "$SOLUTION" -c Release --no-restore -p:Version="$VERSION" -p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        run: dotnet test "$SOLUTION" -c Release --no-build
+
+      - name: Pack
+        run: dotnet pack "$SOLUTION" -c Release --no-build -o artifacts -p:Version="$VERSION" -p:ContinuousIntegrationBuild=true
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: nupkgs
+          path: artifacts/*.nupkg
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish to NuGet and create release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # This line makes the job wait for manual approval, and is the ONLY
+    # place the NuGet key is available.
+    environment: release
+    permissions:
+      contents: write   # needed to create the tag and the release
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: nupkgs
+          path: artifacts
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Push to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "artifacts/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Create tag and GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PRERELEASE=""
+          if [[ "$VERSION" == *-* ]]; then PRERELEASE="--prerelease"; fi
+          gh release create "v$VERSION" artifacts/*.nupkg \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "CSteroid $VERSION" \
+            --generate-notes \
+            $PRERELEASE

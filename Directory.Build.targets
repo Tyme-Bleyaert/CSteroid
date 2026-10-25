@@ -1,0 +1,49 @@
+<Project>
+
+  <!--
+    Analyzer (source-generator) projects: IncludeBuildOutput=false strips the lib/
+    entry, so pack the built DLLs explicitly under analyzers/dotnet/cs (see the None
+    items below). CSteroid.Generator.Shared is referenced with PrivateAssets="all" in each
+    generator csproj so it is NOT listed as a package dependency (its DLL is bundled into
+    the analyzer folder), while CSteroid.Core remains a normal dependency that flows to
+    consumers transitively — installing any generator package pulls in Core automatically.
+
+    This lives in Directory.Build.targets (not .props) because the condition reads
+    OutputItemType/IsPackable, which are only set once the project file itself has
+    been evaluated.
+
+    The payload is packed as evaluation-time None items with a wildcard, the same
+    mechanism the readme/icon use. This is deliberate: the per-TFM
+    TargetsForTfmSpecific*InPackage hooks are unreliable under the .NET 11 RC pack
+    targets (target-produced items are silently dropped -> NU5017), while plain
+    None Pack=true items are stable across .NET SDK 8/9/10/11. Analyzer projects also
+    set IncludeSymbols=false: their PDBs are embedded in the DLL (SourceLink), so an
+    empty .snupkg would fail NU5017.
+  -->
+  <PropertyGroup Condition="'$(IsPackable)' == 'true' and '$(OutputItemType)' == 'Analyzer'">
+    <IncludeSymbols>false</IncludeSymbols>
+  </PropertyGroup>
+
+  <!-- Packages without lib assemblies still need to declare their target framework
+       so NuGet can match it to their dependency groups. The empty placeholder avoids
+       NU5128 without turning analyzer DLLs into regular package references. -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true' and '$(IncludeBuildOutput)' == 'false'">
+    <None Include="$(MSBuildThisFileDirectory)_._"
+          Pack="true"
+          PackagePath="lib/$(TargetFramework)/_._"
+          Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsPackable)' == 'true' and '$(OutputItemType)' == 'Analyzer'">
+    <None Include="$(OutputPath)$(AssemblyName).dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+    <None Include="$(OutputPath)CSteroid.Generator.Shared.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false"
+          Condition="'$(AssemblyName)' != 'CSteroid.Generator.Shared'" />
+  </ItemGroup>
+
+</Project>

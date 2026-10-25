@@ -1,0 +1,30 @@
+<Project>
+
+  <!-- Shared NuGet metadata for every packable project in this repo. -->
+  <PropertyGroup>
+    <Version>1.0.0</Version>
+    <Authors>Tyme-Bleyaert</Authors>
+    <Company>Tyme-Bleyaert</Company>
+    <Copyright>Copyright 2025 Tyme-Bleyaert</Copyright>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/Tyme-Bleyaert/CSteroid</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Tyme-Bleyaert/CSteroid.git</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>icon.png</PackageIcon>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Diagnostic IDs we intentionally do not track (analyzer release tracking) -->
+    <NoWarn>$(NoWarn);RS2008</NoWarn>
+  </PropertyGroup>
+
+  <!-- Include the repo readme and icon in packable projects only.
+       The icon is packed under a clean filename; the source lives in the brand folder. -->
+  <ItemGroup Condition="'$(IsPackable)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)assets/asset_exports/asset5.png" Pack="true" PackagePath="icon.png" Visible="false" />
+  </ItemGroup>
+
+</Project>

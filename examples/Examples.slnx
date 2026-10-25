@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/HexogonalDdd/">
+    <Project Path="HexagonalDdd/HexagonalDdd.Customer.Application/HexagonalDdd.Customer.Application.csproj" />
+    <Project Path="HexagonalDdd/HexagonalDdd.Customer.Domain/HexagonalDdd.Customer.Domain.csproj" />
+    <Project Path="HexagonalDdd/HexagonalDdd.Customer.Metadata/HexagonalDdd.Customer.Metadata.csproj" />
+    <Project Path="HexagonalDdd/HexagonalDdd.Order.Application/HexagonalDdd.Order.Application.csproj" />
+    <Project Path="HexagonalDdd/HexagonalDdd.Order.Domain/HexagonalDdd.Order.Domain.csproj" />
+    <Project Path="HexagonalDdd/HexagonalDdd.Order.Metadata/HexagonalDdd.Order.Metadata.csproj" />
+    <Project Path="HexagonalDdd/HexagonalDdd.Ui/HexagonalDdd.Ui.csproj" />
+  </Folder>
+</Solution>
