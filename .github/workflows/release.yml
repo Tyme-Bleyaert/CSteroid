@@ -77,7 +77,7 @@ jobs:
         run: dotnet pack "$SOLUTION" -c Release --no-build -o artifacts -p:Version="$VERSION" -p:ContinuousIntegrationBuild=true
 
       - name: Upload packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nupkgs
           path: artifacts/*.nupkg
