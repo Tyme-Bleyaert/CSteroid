@@ -1,0 +1,56 @@
+name: CI
+
+# Runs on every pull request, and again after a merge into main/dev.
+# It only READS the code. It never gets any secrets.
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+# If you push again while a run is busy, cancel the old run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore src/CSteroid/CSteroid.slnx
+
+      - name: Restore examples
+        run: dotnet restore examples/Examples.slnx
+
+      - name: Build
+        run: dotnet build src/CSteroid/CSteroid.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - name: Build examples
+        run: dotnet build examples/Examples.slnx -c Release --no-restore -p:ContinuousIntegrationBuild=true
+
+      - name: Test
+        run: dotnet test src/CSteroid/CSteroid.slnx -c Release --no-build --verbosity normal
+
+      - name: Run HexagonalDdd example self-checks
+        run: dotnet run --project examples/HexagonalDdd/HexagonalDdd.Ui -c Release --no-build
+
+      # Only checks that packing works. Nothing is uploaded or published.
+      - name: Pack (validation only)
+        run: dotnet pack src/CSteroid/CSteroid.slnx -c Release --no-build -o artifacts -p:ContinuousIntegrationBuild=true
