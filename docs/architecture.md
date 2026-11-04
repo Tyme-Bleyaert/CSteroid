@@ -8,6 +8,10 @@ For the essentials (stack, commands, rules), see `AGENTS.md`.
 * **CSteroid.Core** – Public API surface consumers reference: attributes, enums,
   `IMapper<TSource,TDest>`, and the lightweight validation rule engine
   (`IValidator<T>`, `IAsyncValidator<T>`, `IRuleBuilder<T>`, etc.).
+* **CSteroid.Blazor** – Blazor `EditContext` integration for custom validation.
+  The component owns message-store/event wiring, whole-model sync/async runs,
+  awaited submission, stale-result suppression, and field-path resolution. See
+  `blazor-validation.md`.
 * **CSteroid.Orm** – ORM target selection: the `OrmTarget` flags enum and
   `OrmTargetAttribute` (namespace `CSteroid`). Consumers apply
   `[OrmTarget(OrmTarget.EFCore)]` alongside `[CanonicalModel(...)]` on the same
@@ -35,6 +39,8 @@ For the essentials (stack, commands, rules), see `AGENTS.md`.
   .Dapper.Tests / .CosmosDB.Tests / .MongoDB.Tests / .PostgreSQL.Tests** – xUnit
   tests per generator, running the generators against in-memory compilations
   and asserting on emitted source and runtime behavior.
+* **CSteroid.Blazor.Tests** – bUnit integration tests against real `EditContext`
+  and `EditForm` instances, including controlled async completion.
 
 ## Technology details
 
@@ -209,7 +215,8 @@ Tests compile in-memory source strings through the relevant generator(s) via
 `GeneratorTestHarness` (in `CSteroid.Generator.Testing`), assert on the
 generated source text, and load the emitted assembly to exercise runtime
 behavior. When adding generator features, add a test to the matching project
-covering both the generated source shape and the runtime result.
+covering both the generated source shape and the runtime result. Blazor integration
+tests use bUnit and controlled validators rather than rendering a separate sample app.
 
 ## Code style details
 

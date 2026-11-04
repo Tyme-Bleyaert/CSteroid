@@ -17,6 +17,7 @@ Add the `CSteroid.Generator` package to the target project, reference `CSteroid.
 - **Mapping options** – extension methods, static methods, implicit/explicit casts, dependency-injection mappers, and `IQueryable<T>` projection expressions.
 - **ORM optimisations** – conventions and attributes for EF Core, Dapper, Cosmos DB, MongoDB, and PostgreSQL, each shipped as its own generator package. Reference `CSteroid.Orm` and apply `[OrmTarget(OrmTarget.EFCore)]` alongside `[CanonicalModel(...)]` to route the model to the matching package. A model may carry only one `OrmTarget` flag (`CSG101` otherwise).
 - **Validation** – DataAnnotations forwarding, custom fluent validation, async validation, conditional rules, cross-property rules, and nested object & collection validation.
+- **Blazor forms** – opt-in `EditContext` integration with field-level messages, nested paths, and async-safe submission.
 - **Configuration** – custom namespaces, folder paths, file naming (`*.model.cs`), and logical separation of validators/mappings into different namespaces.
 
 ## Example
@@ -84,8 +85,9 @@ internal partial class UserDtoValidator : IAsyncValidator<UserDto>
 
 **Requirements:** .NET SDK 6.0.100+ (or Visual Studio 2022+). The generated code uses
 C# 9 features (target-typed `new`, `is not null`), so the consuming project needs
-language version 9 or higher. The library itself targets `netstandard2.0` and runs
-on .NET Framework 4.6.1+ through .NET 10+.
+language version 9 or higher. Core and generator libraries target `netstandard2.0`
+and run on .NET Framework 4.6.1+ through .NET 10+. The optional `CSteroid.Blazor`
+adapter targets .NET 8 and .NET 10.
 
 The typical workflow is: **define interfaces → build (generates) → override the partials you need**.
 
@@ -251,6 +253,39 @@ internal partial class UserDtoValidator
     }
 }
 ```
+
+### Blazor EditContext
+
+Reference `CSteroid.Blazor`, then attach the caller-owned validator inside the form:
+
+```razor
+@using CSteroid.Blazor
+
+<EditForm Model="_model" OnSubmit="SubmitAsync">
+    <CSteroidValidator TModel="UserDto" Validator="_validator" @ref="_validation" />
+    <InputText @bind-Value="_model.Email" />
+    <ValidationMessage For="@(() => _model.Email)" />
+    <button type="submit">Save</button>
+</EditForm>
+
+@code {
+    private readonly UserDto _model = new();
+    private readonly UserDtoValidator _validator = new();
+    private CSteroidValidator<UserDto> _validation = default!;
+
+    private async Task SubmitAsync(EditContext context)
+    {
+        if (!await _validation.ValidateAsync())
+            return;
+
+        await SaveUser(_model);
+    }
+}
+```
+
+Use `OnSubmit` with the awaited gate for both sync and async validators. Only Error
+failures enter Blazor's message store; the optional `ValidationCompleted` callback
+receives Warning and Info as well. See [the integration guide](docs/blazor-validation.md).
 
 ## Support
 
