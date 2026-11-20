@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <Description>CSteroid AutoMediator typed mediator and handler contracts with compile-time dispatch and registration.</Description>
+    <PackageTags>csteroid source-generator roslyn mediator</PackageTags>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pinned runtime dependencies; neither ValueTask nor the DI abstractions are inbox on netstandard2.0. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Build-order only: the built analyzer DLLs are packed explicitly below. -->
+    <ProjectReference Include="..\CSteroid.Generator.AutoMediator\CSteroid.Generator.AutoMediator.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="..\CSteroid.Generator.Shared\CSteroid.Generator.Shared.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <!-- Pack the analyzer payload next to the runtime lib. -->
+    <None Include="..\CSteroid.Generator.AutoMediator\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.AutoMediator.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+    <None Include="..\CSteroid.Generator.Shared\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Shared.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>

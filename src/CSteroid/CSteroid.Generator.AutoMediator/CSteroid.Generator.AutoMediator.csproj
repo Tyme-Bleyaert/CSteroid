@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <!-- Emit this project as an analyzer (so it will be consumed as a source generator) -->
+    <OutputItemType>Analyzer</OutputItemType>
+    <!-- Don't include the build output as a regular reference when this project is referenced -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <!-- The generator ships inside the CSteroid.AutoMediator package, not as its own package. -->
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Roslyn APIs needed for incremental generators. Marked PrivateAssets so they don't flow to consumers. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.10.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CSteroid.Generator.Shared\CSteroid.Generator.Shared.csproj" PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>

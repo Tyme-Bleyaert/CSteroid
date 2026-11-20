@@ -8,4 +8,10 @@
     <Project Path="HexagonalDdd/HexagonalDdd.Order.Metadata/HexagonalDdd.Order.Metadata.csproj" />
     <Project Path="HexagonalDdd/HexagonalDdd.Ui/HexagonalDdd.Ui.csproj" />
   </Folder>
+  <Folder Name="/AutoMediator/">
+    <Project Path="AutoMediator/Migration.Before/Migration.Before.csproj" />
+    <Project Path="AutoMediator/Migration.After/Migration.After.csproj" />
+    <Project Path="AutoMediator/Sample.Application/Sample.Application.csproj" />
+    <Project Path="AutoMediator/Sample.WebApi/Sample.WebApi.csproj" />
+  </Folder>
 </Solution>

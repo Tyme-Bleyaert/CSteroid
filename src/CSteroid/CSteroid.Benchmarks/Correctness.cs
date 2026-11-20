@@ -14,6 +14,7 @@ public static class Correctness
     {
         CheckMapping();
         CheckValidation();
+        AutoMediatorCorrectness.RunAll();
         Console.WriteLine("All correctness checks passed.");
     }
 

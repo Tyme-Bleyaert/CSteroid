@@ -90,4 +90,4 @@ dotnet run --project examples/HexagonalDdd/HexagonalDdd.Ui
 ```
 
 The console app wires in-memory persistence adapters into the application services and
-runs self-checks across the Entity -> BO -> DTO -> ViewModel chain.
+prints the results of the Entity -> BO -> Dto -> ViewModel chain.

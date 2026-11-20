@@ -5,7 +5,9 @@
   <Project Path="CSteroid.Benchmarks/CSteroid.Benchmarks.csproj" />
   <Project Path="CSteroid.Core/CSteroid.Core.csproj" />
   <Project Path="CSteroid.Orm/CSteroid.Orm.csproj" />
+  <Project Path="CSteroid.AutoMediator/CSteroid.AutoMediator.csproj" />
   <Project Path="CSteroid.Generator/CSteroid.Generator.csproj" />
+  <Project Path="CSteroid.Generator.AutoMediator/CSteroid.Generator.AutoMediator.csproj" />
   <Project Path="CSteroid.Generator.CosmosDB/CSteroid.Generator.CosmosDB.csproj" />
   <Project Path="CSteroid.Generator.Dapper/CSteroid.Generator.Dapper.csproj" />
   <Project Path="CSteroid.Generator.EFCore/CSteroid.Generator.EFCore.csproj" />
@@ -22,6 +24,7 @@
   <Project Path="CSteroid.Generator.MongoDB.Tests/CSteroid.Generator.MongoDB.Tests.csproj" />
   <Project Path="CSteroid.Generator.PostgreSQL.Tests/CSteroid.Generator.PostgreSQL.Tests.csproj" />
   <Project Path="CSteroid.Generator.Tests/CSteroid.Generator.Tests.csproj" />
+  <Project Path="CSteroid.Generator.AutoMediator.Tests/CSteroid.Generator.AutoMediator.Tests.csproj" />
   <Project Path="CSteroid.Generator.Validation.Tests/CSteroid.Generator.Validation.Tests.csproj" />
   <Project Path="CSteroid/CSteroid.csproj" />
 

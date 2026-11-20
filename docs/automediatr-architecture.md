@@ -1,37 +1,53 @@
 # CSteroid.AutoMediator architecture
 
-Status: synthesized design and implementation plan. No production implementation is
-included in this change.
+Status: current v1 architecture.
 
-## 1. Problem and scope
+## 1. Product direction and scope
 
-AutoMediator adds mediator behavior to existing partial classes without changing
-their constructors or requiring a runtime mediator service. A host implements
-`IAutoMediatorService`; the generator discovers messages and handler services,
-validates the routes, and emits `Send`, `Publish`, handler resolution, and DI
-registration into the host's assembly.
+AutoMediator is an in-process mediator with typed handlers and a generator-owned
+runtime dispatcher. Consumers inject `IAutoMediator`, `ISender`, or `IPublisher`
+through ordinary constructors. Handler classes implement closed typed interfaces.
+The generator emits one mediator and one registration surface per composition
+root; a separate `DiagnosticAnalyzer` owns all CSAM diagnostics.
 
-The difficult parts are not the method calls themselves. They are exact-type
-routing, command cardinality, six handler return shapes, DI lifetime correctness,
-host-as-handler cycles, deterministic incremental generation, and shipping a
-runtime library and Roslyn analyzer in one NuGet package.
+The design priorities are, in order:
+
+1. A small, familiar consumer API and a mechanical migration path from MediatR.
+2. Compiler-enforced handler signatures, exact routing, and actionable diagnostics.
+3. Ordinary DI lifetimes and straightforward unit testing.
+4. Deterministic incremental generation and maintainable compiler code.
+5. Static dispatch and closed generic registration, with performance and AOT
+   claims established by local evidence rather than assumed from the architecture.
+
+The host model is removed. There are no partial hosts, host marker interfaces,
+provider attachment, generated user-class constructors, host-specific route
+tables, or host-is-handler self routes. A class that needs to send or publish
+injects the narrowest mediator interface. A class that needs to invoke its own
+private operation calls that operation directly.
 
 ### V1 scope
 
-- Source-discovered hosts and handlers in one assembly.
-- Exact concrete message-type matching; no base-class or interface fallback.
-- Non-generic, closed message, host, and handler service types.
-- Instance handler methods only.
+- Non-generic, closed message and handler implementation types.
+- Typed `ValueTask` and `ValueTask<TResponse>` handler contracts only.
+- Multiple handler interfaces on one concrete handler class.
+- Exact concrete message-type routing; no base-class or interface fallback.
+- Exactly one handler for a command; zero-to-many handlers for other messages.
+- Static type-keyed dispatch tables and strongly typed per-message paths.
+- Ordinary scoped mediator resolution and concrete handler registration.
 - Sequential, deterministic, fail-fast publication.
-- Runtime pipeline behaviors before the v1 release; compile-time behaviors later.
-- Cross-assembly handlers are a separate post-core milestone, not an implicit v1
-  capability.
+- Per-message compile-time behavior selection with closed runtime registration.
+- Local handlers plus typed-handler manifests imported from referenced assemblies.
+- One NuGet containing the runtime and the compiler components.
 
-Generic hosts and generic containing types are deferred. Nested non-generic hosts
-are supported when every containing type is partial and accessible to generated
-registration.
+Streaming, generic messages/handlers, polymorphic dispatch, alternate publish
+strategies, method-convention handlers, synchronous/`Task` handler interfaces,
+host façades, exact-name MediatR recognition, code fixes, and interceptors are not
+part of v1.
 
 ## 2. Usage: the caller's contract
+
+Messages and handlers are ordinary types. No handler discovery attribute or
+marker interface is required.
 
 ```csharp
 using CSteroid.AutoMediator;
@@ -40,46 +56,83 @@ public sealed record CreateOrder(string Sku) : ICommand<OrderId>;
 public sealed record DeleteOrder(OrderId Id) : ICommand;
 public sealed record OrderCreated(OrderId Id) : IMessage;
 
-public sealed class OrderService : IAutoMediatorHandler
+public sealed class OrderHandlers :
+    ICommandHandler<CreateOrder, OrderId>,
+    ICommandHandler<DeleteOrder>,
+    IMessageHandler<OrderCreated>
 {
-    public Task<OrderId> Handle(CreateOrder command, CancellationToken ct)
+    public ValueTask<OrderId> Handle(
+        CreateOrder command,
+        CancellationToken cancellationToken)
         => throw new NotImplementedException();
 
-    public void Handle(DeleteOrder command)
+    public ValueTask Handle(
+        DeleteOrder command,
+        CancellationToken cancellationToken)
         => throw new NotImplementedException();
 
-    public ValueTask Handle(OrderCreated message, CancellationToken ct)
+    public ValueTask Handle(
+        OrderCreated message,
+        CancellationToken cancellationToken)
         => throw new NotImplementedException();
 }
 
-public sealed class AuditService
+public sealed class AuditHandler : IMessageHandler<OrderCreated>
 {
-    [Handler]
-    public void Record(OrderCreated message)
+    public ValueTask Handle(
+        OrderCreated message,
+        CancellationToken cancellationToken)
         => throw new NotImplementedException();
 }
+```
 
-public partial class MailService : IAutoMediatorService
+A synchronous handler returns `default` for a non-response operation or
+`new ValueTask<TResponse>(result)` for a response. A handler that uses a
+`Task`-based API can be `async ValueTask`/`async ValueTask<TResponse>` or wrap the
+returned task explicitly. There is no second handler contract for `Task`, `void`,
+or synchronous results.
+
+Consumers remain ordinary, non-partial classes with unrestricted constructors:
+
+```csharp
+public sealed class MailService
 {
     private readonly IClock _clock;
+    private readonly IAutoMediator _mediator;
 
-    // Existing constructors remain unchanged.
-    public MailService(IClock clock) => _clock = clock;
-
-    public async Task Welcome(string sku, CancellationToken ct)
+    public MailService(IClock clock, IAutoMediator mediator)
     {
-        OrderId id = await Send(new CreateOrder(sku), ct);
-        await Publish(new OrderCreated(id), ct);
-        await Send(new DeleteOrder(id), ct);
+        _clock = clock;
+        _mediator = mediator;
+    }
+
+    public async Task Welcome(string sku, CancellationToken cancellationToken)
+    {
+        OrderId id = await _mediator.Send(new CreateOrder(sku), cancellationToken);
+        await _mediator.Publish(new OrderCreated(id), cancellationToken);
+        await _mediator.Send(new DeleteOrder(id), cancellationToken);
     }
 }
 ```
 
-At the composition root:
+Unit tests can construct `MailService` with a fake or mocked `IAutoMediator` and
+`IClock`; no generated attachment state or real service provider is required.
+Handlers can also be tested directly as plain classes.
+
+The composition root explicitly opts into mediator emission and imports:
+
+```csharp
+using CSteroid.AutoMediator;
+
+[assembly: AutoMediatorCompositionRoot]
+```
+
+Registration is then one call:
 
 ```csharp
 var services = new ServiceCollection();
 services.AddScoped<IClock, SystemClock>();
+services.AddScoped<MailService>();
 services.AddAutoMediator();
 
 using var provider = services.BuildServiceProvider(
@@ -90,72 +143,74 @@ var mail = scope.ServiceProvider.GetRequiredService<MailService>();
 await mail.Welcome("SKU-123", cancellationToken);
 ```
 
-A class can be both host and handler:
+AutoMediator does not reconstruct or attach user services.
+
+A handler that legitimately emits a follow-up command or event can inject
+`ISender` or `IPublisher`. Normal DI captive-dependency rules still apply: a
+singleton handler must not capture a scoped mediator or scoped dependency. This
+is not a special self-routing feature.
+
+### Behaviors
+
+Behaviors use MediatR-like `Handle(message, next, cancellationToken)` parameter
+order. The continuation accepts the message and token so it need not recapture
+those values and so a behavior can deliberately replace them.
 
 ```csharp
-public partial class OrderProjection : IAutoMediatorService, IAutoMediatorHandler
-{
-    [Handler]
-    private void Record(OrderCreated message)
-        => throw new NotImplementedException();
+[assembly: CSteroid.AutoMediator.AutoMediatorBehavior(
+    typeof(App.LoggingBehavior<,>), Order = 100)]
 
-    public ValueTask Project(OrderCreated message, CancellationToken ct)
-        => Publish(message, ct);
+public sealed class LoggingBehavior<TMessage, TResponse>
+    : CSteroid.AutoMediator.IPipelineBehavior<TMessage, TResponse>
+    where TMessage : CSteroid.AutoMediator.IMessage
+{
+    public System.Threading.Tasks.ValueTask<TResponse> Handle(
+        TMessage message,
+        CSteroid.AutoMediator.AutoMediatorNext<TMessage, TResponse> next,
+        System.Threading.CancellationToken cancellationToken)
+        => next(message, cancellationToken);
 }
 ```
 
-The `OrderProjection` route calls `this.Record(message)` directly. It never
-resolves `OrderProjection` from its own attached provider.
-
-To expose dispatch outside the host:
-
-```csharp
-[AutoMediatorHost(Accessibility = AutoMediatorMemberAccessibility.Public)]
-public partial class OrdersApi : IAutoMediatorService
-{
-}
-
-ICommand<OrderId> command = new CreateOrder("SKU-123");
-OrderId id = await api.Send(command, cancellationToken);
-```
-
-The fixed generic surface still gives a statically typed result. Route existence
-is checked by exact runtime type; an unknown concrete command throws rather than
-causing an invalid cast or silently selecting a base route.
+The generator selects a behavior only for routes whose concrete message and
+response types satisfy its contract and generic constraints.
 
 ## 3. Decisions
 
 | Concern | Decision |
 | --- | --- |
-| Host API | One generic `Send<TResponse>`, one non-generic `Send`, and one `Publish`; no per-message overload family. |
-| Host accessibility | `protected` by default; `public` or `internal` through `AutoMediatorHostAttribute`. |
-| Injection | One attached `IServiceProvider`; no generated constructor and no required mediator constructor parameter. |
-| Handler resolution | Self routes call `this`; scoped/singleton handlers use one thread-safe lazy slot per host; transient handlers resolve per handler-method invocation. |
-| Host construction | `ActivatorUtilities.CreateInstance`, followed by internal attach. `AddAutoMediator` is the supported production path. |
-| Lifetimes | Hosts and handlers default to scoped. Host lifetime is configured on `AutoMediatorHostAttribute`; handler lifetime on `HandlerLifetimeAttribute`. |
-| Captive dependencies | Singleton host to scoped external handler is an error. Singleton to singleton or per-dispatch transient is valid. |
-| Send cardinality | Exactly one valid route. Zero is `CSAM001`; multiple is `CSAM002`; neither emits an executable route. |
-| Non-generic commands | Handler must return `void`, `Task`, or `ValueTask`; results are not silently discarded. |
-| Events | Zero-to-many handlers. Result-bearing handlers are allowed; results are discarded only after synchronous return or asynchronous completion. |
-| Zero-handler events | No-op completed `ValueTask`. |
-| Publish order | Sequential ordinal order by assembly-aware handler type identity, then stable method signature key. |
-| Publish failures | Fail fast. The original exception/fault propagates and later handlers do not run. No `AggregateException` wrapper. |
-| Cancellation | Pass the supplied token only to methods that declare it. Do not add synthetic cancellation checks. |
-| Publishing commands | Reject with `ArgumentException`; commands must use `Send`. |
-| Dynamic dispatch | Always supported through the fixed interface-based surface. There is no `AllowDynamicDispatch` option. |
-| Test construction | Use a real `ServiceCollection`, register application dependencies, call `AddAutoMediator`, and resolve the host. Direct `new` remains unattached and fails clearly on dispatch. |
-| Registration | One generated, assembly-local `AddAutoMediator`; `TryAdd` avoids duplicate descriptors on repeated calls. |
-
-Do not pre-register a host with another factory. `TryAdd` respects that earlier
-registration, but it cannot attach the provider; dispatch then fails with the
-unattached-host exception. Custom earlier handler registrations are allowed and
-follow normal `TryAdd` replacement behavior.
+| Handler contract | Closed typed interfaces with `ValueTask` returns. The C# compiler enforces method shape. |
+| Handler discovery | Directly declared supported handler interfaces; no required class attribute or marker interface. |
+| Caller contract | Inject `IAutoMediator`, `ISender`, or `IPublisher`. No user type is modified. |
+| Mediator ownership | The generator emits one internal mediator per composition-root assembly. |
+| Mediator lifetime | Scoped by default. It captures the current scope's provider and resolves handlers lazily. |
+| Response variance | `ICommand<TResponse>` is invariant; covariance would invalidate closed response-delegate casts. |
+| Message routing | Exact `message.GetType()` lookup. No assignability or variance-based route matching. |
+| Send API | One generic response Send and one non-response Send on `ISender`; no public per-message overload family. |
+| Dispatch | Static tables plus private strongly typed adapters, pipelines, and terminals. |
+| Dispatch threshold | None in v1. Any chain/table hybrid requires BenchmarkDotNet evidence. |
+| Handler resolution | Resolve the concrete handler from the current provider on every handler invocation. |
+| Handler registration | Register each concrete handler once at its declared lifetime; typed interfaces are implementation contracts, not independent default service instances. |
+| Handler fields | None. DI owns scoped/singleton reuse and transient creation. |
+| Send cardinality | Exactly one valid handler. Missing concrete uses and duplicate declarations are analyzer errors. |
+| Non-response commands | Return non-generic `ValueTask`; response commands cannot be sent through the non-response route. |
+| Events | `IMessageHandler<TMessage>` returns non-generic `ValueTask`; no result-discarding handler form. |
+| Zero-handler events | Return a completed `ValueTask`; no behavior runs without a declared route. |
+| Publish order | Sequential ordinal order by assembly-aware concrete handler identity. |
+| Publish failures | Fail fast; the original fault propagates and later handlers do not run. |
+| Publishing commands | Reject with `ArgumentException`; commands use Send. |
+| Cancellation | Every handler and behavior receives the supplied token. No synthetic cancellation checks. |
+| Behaviors | Compile-time applicability/order and closed concrete resolution/registration. |
+| Cross-assembly | Versioned per-handler-type manifests; the marked composition root owns merged routing and registration. |
+| Diagnostics | A separate analyzer reports every CSAM rule. The generator reports none. |
+| Registration | `TryAdd` makes generated registration idempotent and preserves compatible custom descriptors. |
+| Host façade/self routes | Removed, including from the designed optional v1 surface. Revisit only with demonstrated demand. |
 
 ## 4. Public runtime API
 
-The runtime project targets `netstandard2.0`. It needs explicit, pinned
-dependencies for `ValueTask` and Microsoft DI abstractions; neither is assumed to
-be inbox on that target.
+The runtime targets `netstandard2.0` and pins the dependencies required for
+`ValueTask` and Microsoft DI abstractions. No streaming dependency is added in
+v1.
 
 ```csharp
 namespace CSteroid.AutoMediator
@@ -164,130 +219,166 @@ namespace CSteroid.AutoMediator
 
     public interface ICommand : IMessage { }
 
-    // Deliberately inherits ICommand so Publish can reject every command,
-    // including one held through a non-generic ICommand reference.
+    // Deliberately invariant.
     public interface ICommand<TResponse> : ICommand { }
 
-    public interface IAutoMediatorService { }
-
-    public interface IAutoMediatorHandler { }
-
-    public enum AutoMediatorMemberAccessibility
+    public interface ISender
     {
-        Protected = 0,
-        Public = 1,
-        Internal = 2
+        ValueTask Send(
+            ICommand command,
+            CancellationToken cancellationToken = default);
+
+        ValueTask<TResponse> Send<TResponse>(
+            ICommand<TResponse> command,
+            CancellationToken cancellationToken = default);
     }
 
-    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-    public sealed class AutoMediatorHostAttribute : Attribute
+    public interface IPublisher
     {
-        public AutoMediatorMemberAccessibility Accessibility { get; set; } // Protected
-        public ServiceLifetime Lifetime { get; set; }                      // Scoped
+        ValueTask Publish(
+            IMessage message,
+            CancellationToken cancellationToken = default);
     }
 
-    [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
-    public sealed class HandlerAttribute : Attribute { }
+    public interface IAutoMediator : ISender, IPublisher { }
+
+    public interface ICommandHandler<in TCommand>
+        where TCommand : ICommand
+    {
+        ValueTask Handle(TCommand command, CancellationToken cancellationToken);
+    }
+
+    public interface ICommandHandler<in TCommand, TResponse>
+        where TCommand : ICommand<TResponse>
+    {
+        ValueTask<TResponse> Handle(
+            TCommand command,
+            CancellationToken cancellationToken);
+    }
+
+    public interface IMessageHandler<in TMessage>
+        where TMessage : IMessage
+    {
+        ValueTask Handle(TMessage message, CancellationToken cancellationToken);
+    }
+
+    public delegate ValueTask AutoMediatorNext<in TMessage>(
+        TMessage message,
+        CancellationToken cancellationToken)
+        where TMessage : IMessage;
+
+    public delegate ValueTask<TResponse> AutoMediatorNext<in TMessage, TResponse>(
+        TMessage message,
+        CancellationToken cancellationToken)
+        where TMessage : IMessage;
+
+    // Invariant: a message-typed continuation makes contravariant behavior
+    // interfaces invalid and exact route selection does not use variance.
+    public interface IPipelineBehavior<TMessage>
+        where TMessage : IMessage
+    {
+        ValueTask Handle(
+            TMessage message,
+            AutoMediatorNext<TMessage> next,
+            CancellationToken cancellationToken);
+    }
+
+    public interface IPipelineBehavior<TMessage, TResponse>
+        where TMessage : IMessage
+    {
+        ValueTask<TResponse> Handle(
+            TMessage message,
+            AutoMediatorNext<TMessage, TResponse> next,
+            CancellationToken cancellationToken);
+    }
 
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
     public sealed class HandlerLifetimeAttribute : Attribute
     {
         public HandlerLifetimeAttribute(ServiceLifetime lifetime);
-        public ServiceLifetime Lifetime { get; }
+        public ServiceLifetime Lifetime { get; } // Scoped by default without the attribute.
+    }
+
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
+    public sealed class AutoMediatorCompositionRootAttribute : Attribute { }
+
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class AutoMediatorBehaviorAttribute : Attribute
+    {
+        public AutoMediatorBehaviorAttribute(Type behaviorType);
+        public Type BehaviorType { get; }
+        public int Order { get; set; }                 // 0; lower is outermost.
+        public ServiceLifetime Lifetime { get; set; }  // Scoped.
+    }
+
+    // Emitted by the generator; not normally written by consumers.
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class AutoMediatorManifestAttribute : Attribute
+    {
+        public AutoMediatorManifestAttribute(int version, Type handlerType);
+        public int Version { get; }
+        public Type HandlerType { get; }
     }
 }
 ```
 
-These types ship only in `CSteroid.AutoMediator.dll`. The generator does **not**
-emit them through `RegisterPostInitializationOutput`; doing so would duplicate
-the public contracts already supplied by the runtime reference.
+All public contracts ship only in `CSteroid.AutoMediator.dll`. The generator does
+not emit duplicate public runtime attributes through post-initialization output.
 
-### Runtime behavior contracts
-
-These are added in the runtime-behavior milestone before v1 ships. They live in
-the main runtime package, not an optional extensions package that generated code
-would otherwise have to conditionally reference.
-
-```csharp
-namespace CSteroid.AutoMediator
-{
-    public delegate ValueTask AutoMediatorNext();
-    public delegate ValueTask<TResponse> AutoMediatorNext<TResponse>();
-
-    public interface IPipelineBehavior<in TMessage>
-        where TMessage : IMessage
-    {
-        ValueTask Handle(
-            TMessage message,
-            CancellationToken cancellationToken,
-            AutoMediatorNext next);
-    }
-
-    public interface IPipelineBehavior<in TMessage, TResponse>
-        where TMessage : IMessage
-    {
-        ValueTask<TResponse> Handle(
-            TMessage message,
-            CancellationToken cancellationToken,
-            AutoMediatorNext<TResponse> next);
-    }
-}
-```
-
-Send wraps its single terminal handler. Publish wraps the whole sequential
-fan-out, so a logging behavior observes one publication rather than one behavior
-chain per subscriber. Behaviors are resolved per dispatch in DI registration
-order; the first registered behavior is outermost. Users register behaviors with
-DI; the generator does not invent a second ordering attribute.
-
-Runtime behavior registrations are not visible to generator lifetime analysis.
-For singleton hosts, applications must not register scoped behaviors against the
-root provider; `ValidateScopes` and runtime tests are the guardrails.
+Handler and behavior interfaces may be implemented explicitly. Dispatch resolves
+the concrete class and invokes the exact closed interface so explicit
+implementations work. Contravariance on handler interfaces does not broaden
+discovery or routing: only an exact declared closed interface argument creates a
+route.
 
 ## 5. Repository and package layout
-
-Follow the repository's existing generator naming and co-located test layout:
 
 ```text
 src/CSteroid/
   CSteroid.AutoMediator/
-    CSteroid.AutoMediator.csproj           netstandard2.0; packable runtime
+    CSteroid.AutoMediator.csproj            netstandard2.0; packable runtime
     Messages.cs
+    Handlers.cs
+    MediatorContracts.cs
     Attributes.cs
-    PipelineBehaviors.cs                   added with runtime behaviors
+    PipelineBehaviors.cs
 
   CSteroid.Generator.AutoMediator/
-    CSteroid.Generator.AutoMediator.csproj netstandard2.0; nonpackable analyzer
-    AutoMediatorGenerator.cs               provider wiring only
-    Models.cs                              equatable DTOs
-    EquatableArray.cs
-    Discovery.cs                           syntax/symbol-to-DTO boundary
-    RouteAnalyzer.cs                       global route invariants
-    HostPlanner.cs                         host-specific routes and diagnostics
-    HostEmitter.cs
+    CSteroid.Generator.AutoMediator.csproj  netstandard2.0; nonpackable analyzer
+    AutoMediatorGenerator.cs                incremental provider wiring only
+    AutoMediatorDiagnosticAnalyzer.cs       Roslyn actions and reporting only
+    FactsReader.cs                          source/metadata symbol-to-DTO conversion
+    RoutePolicy.cs                          message classification and cardinality
+    BehaviorPolicy.cs                       closure, constraints, order, lifetime
+    Models.cs                               including EquatableArray<T>
+    MediatorPlanner.cs
+    MediatorEmitter.cs
+    ManifestEmitter.cs
     RegistrationEmitter.cs
-    Diagnostics.cs                         static descriptors and DTO reporting
+    Diagnostics.cs                          descriptors; analyzer reporting only
 
-  CSteroid.Generator.AutoMediator.Tests/   net10.0 xUnit
-  CSteroid.AutoMediator.IntegrationTests/  packed PackageReference consumer
+  CSteroid.Generator.AutoMediator.Tests/    net10.0 xUnit
 
 examples/AutoMediator/Sample.WebApi/
+examples/AutoMediator/Sample.Application/   cross-assembly handler library
 ```
 
-There is no separate generator package, `CSteroid.AutoMediator.Extensions`
-project, Core dependency, or Orm dependency in v1.
+There is no separate analyzer package, generator package, extensions package,
+Core dependency, or Orm dependency. The analyzer needs no Workspaces reference.
+A future code fix would use a separate Workspaces-referencing project.
 
-### One NuGet, two assemblies
+### One NuGet, two principal assemblies
 
-`CSteroid.AutoMediator.csproj` is the pack owner and keeps normal build output.
-The generator project has `OutputItemType=Analyzer`, `IncludeBuildOutput=false`,
-and `IsPackable=false`. It uses Roslyn `4.10.0` and
-`Microsoft.CodeAnalysis.Analyzers` `3.3.4`, matching this repository rather than
-the original proposal's older Roslyn version.
+`CSteroid.AutoMediator.csproj` owns the package and keeps normal build output.
+The compiler project has `OutputItemType=Analyzer`, `IncludeBuildOutput=false`,
+and `IsPackable=false`. It contains both the incremental generator and diagnostic
+analyzer, allowing them to share policy code without another package dependency.
 
-The runtime project has build-order-only, private references to the generator and
-`CSteroid.Generator.Shared`, plus package-local evaluation-time `None Pack=true`
-items. The resulting package is:
+The compiler uses Roslyn `4.10.0` and `Microsoft.CodeAnalysis.Analyzers` `3.3.4`.
+It does not binary-reference the runtime project; runtime types are resolved by
+exact metadata name.
+
+The package contains:
 
 ```text
 lib/netstandard2.0/CSteroid.AutoMediator.dll
@@ -295,695 +386,745 @@ analyzers/dotnet/cs/CSteroid.Generator.AutoMediator.dll
 analyzers/dotnet/cs/CSteroid.Generator.Shared.dll
 ```
 
-The generator references Shared only for genuinely reusable output helpers such
-as normalized `SourceText`; it does not reuse the symbol-backed `ModelInfo`
-pipeline. It does not binary-reference the runtime project. Runtime marker and
-attribute identity is inspected by metadata name, avoiding a runtime/generator
-project cycle.
+Shared is limited to genuinely reusable output helpers. The existing analyzer
+packaging targets remain unchanged. The projects are added to
+`src/CSteroid/CSteroid.slnx`; the samples are added to `examples/Examples.slnx`.
 
-The existing analyzer-only rules in `Directory.Build.targets` remain unchanged.
-The hybrid payload is local to the runtime project until another package needs
-the same pattern.
+## 6. Shared models and rule ownership
 
-Add the runtime, generator, unit tests, and integration tests to
-`src/CSteroid/CSteroid.slnx`; add the sample to `examples/Examples.slnx`.
-
-## 6. Internal data model
-
-Every incremental value is immutable and value-equatable. No model contains
-`ISymbol`, `SyntaxNode`, `Compilation`, or `Location`. Strings use ordinal
-equality. Collections use `EquatableArray<T>`, which wraps `ImmutableArray<T>`
-with sequence equality and deterministic enumeration.
+Incremental values are immutable and value-equatable. They contain no `ISymbol`,
+`SyntaxNode`, `Compilation`, or `Location`. Strings use ordinal equality;
+collections use `EquatableArray<T>`. Generator models do not reference runtime
+enum types.
 
 ```csharp
-internal enum MessageKind { Event, Command, CommandWithResponse }
-internal enum ReturnShape
-{
-    Void,
-    SynchronousResult,
-    Task,
-    TaskOfT,
-    ValueTask,
-    ValueTaskOfT
-}
-
+internal enum RouteKind { Message, Command, CommandWithResponse }
 internal enum LifetimeModel { Scoped, Singleton, Transient }
-internal enum MemberAccessibilityModel { Protected, Public, Internal }
-internal enum HandlerResolution { Self, Lazy, PerDispatch }
 
 internal sealed class TypeRef : IEquatable<TypeRef>
 {
-    internal string RouteKey { get; }       // Full metadata identity + assembly identity.
+    internal string RouteKey { get; }       // Metadata identity + assembly identity.
     internal string GlobalName { get; }     // Emission-ready global:: spelling.
     internal string AssemblyName { get; }
     internal bool IsValueType { get; }
 }
 
-internal sealed class TypeDeclarationModel : IEquatable<TypeDeclarationModel>
+internal sealed class HandlerRouteModel : IEquatable<HandlerRouteModel>
 {
-    internal string Name { get; }
-    internal bool IsRecordClass { get; }
-    internal bool IsPartial { get; }
-    internal AccessibilityModel Accessibility { get; }
+    internal RouteKind Kind { get; }
+    internal TypeRef Message { get; }
+    internal TypeRef Response { get; }      // Present only for CommandWithResponse.
 }
 
-internal sealed class LocationInfo : IEquatable<LocationInfo>
+internal sealed class HandlerDeclarationModel : IEquatable<HandlerDeclarationModel>
 {
-    internal string FilePath { get; }
-    internal int Start { get; }
-    internal int Length { get; }
-    internal int StartLine { get; }
-    internal int StartCharacter { get; }
-    internal int EndLine { get; }
-    internal int EndCharacter { get; }
-}
-
-internal sealed class DiagnosticModel : IEquatable<DiagnosticModel>
-{
-    internal string Id { get; }
-    internal string StableKey { get; }
-    internal LocationInfo Location { get; }
-    internal EquatableArray<string> MessageArguments { get; }
-}
-
-internal sealed class MessageModel : IEquatable<MessageModel>
-{
-    internal TypeRef MessageType { get; }
-    internal MessageKind Kind { get; }
-    internal TypeRef ResponseType { get; }
-    internal LocationInfo DeclarationLocation { get; }
-}
-
-internal sealed class HandlerMethodModel : IEquatable<HandlerMethodModel>
-{
-    internal string MethodKey { get; }      // Type + method + closed parameter signature.
     internal TypeRef HandlerType { get; }
-    internal string MethodName { get; }
-    internal MessageModel Message { get; }
-    internal ReturnShape ReturnShape { get; }
-    internal TypeRef UnwrappedReturnType { get; }
-    internal bool HasCancellationToken { get; }
-    internal bool IsExplicitlyAttributed { get; }
-    internal AccessibilityModel MethodAccessibility { get; }
-    internal LifetimeModel HandlerLifetime { get; }
-    internal bool HasExplicitHandlerLifetime { get; }
-    internal LocationInfo MethodLocation { get; }
+    internal LifetimeModel Lifetime { get; }
+    internal EquatableArray<HandlerRouteModel> Routes { get; }
+    internal EquatableArray<RuleIssue> Issues { get; }
 }
 
-internal sealed class HostDeclarationModel : IEquatable<HostDeclarationModel>
+internal sealed class ManifestModel : IEquatable<ManifestModel>
 {
-    internal TypeRef HostType { get; }
-    internal EquatableArray<TypeDeclarationModel> TypeChain { get; }
-    internal MemberAccessibilityModel GeneratedAccessibility { get; }
-    internal LifetimeModel HostLifetime { get; }
-    internal bool HasExplicitHostLifetime { get; }
-    internal bool HasUsablePublicConstructor { get; }
-    internal EquatableArray<MemberModel> DeclaredMembers { get; }
-    internal EquatableArray<MemberModel> AccessibleInheritedMembers { get; }
-    internal LocationInfo DeclarationLocation { get; }
+    internal int Version { get; }
+    internal string AssemblyName { get; }
+    internal TypeRef HandlerType { get; }
+}
+
+internal sealed class CompilationFacts : IEquatable<CompilationFacts>
+{
+    internal bool IsCompositionRoot { get; }
+    internal EquatableArray<BehaviorDefinitionModel> Behaviors { get; }
+    internal EquatableArray<HandlerDeclarationModel> ImportedHandlers { get; }
+    internal EquatableArray<RuleIssue> ImportIssues { get; }
 }
 
 internal sealed class GlobalPlan : IEquatable<GlobalPlan>
 {
-    internal EquatableArray<RouteModel> ValidRoutes { get; }
-    internal EquatableArray<DiagnosticModel> Diagnostics { get; }
-}
-
-internal sealed class HostPlan : IEquatable<HostPlan>
-{
-    internal HostModel Host { get; }
-    internal string HintName { get; }
-    internal EquatableArray<RoutePlan> Routes { get; }
-    internal EquatableArray<HandlerSlotPlan> HandlerSlots { get; }
-    internal EquatableArray<DiagnosticModel> Diagnostics { get; }
-    internal bool CanEmit { get; }
-}
-
-internal sealed class RegistrationPlan : IEquatable<RegistrationPlan>
-{
-    internal EquatableArray<ServiceRegistrationModel> Services { get; }
-    internal string ExtensionClassName { get; }
+    internal EquatableArray<RoutePlan> ValidRoutes { get; }
+    internal EquatableArray<RegistrationPlan> Registrations { get; }
+    internal EquatableArray<string> InvalidRouteKeys { get; }
 }
 ```
 
-`AccessibilityModel`, `MemberModel`, `RouteModel`, `RoutePlan`,
-`HandlerSlotPlan`, `HostModel`, and `ServiceRegistrationModel` follow the same
-value-equatable DTO rule. In particular, generator models never reference the
-public `AutoMediatorMemberAccessibility` or `ServiceLifetime` types, because the
-generator deliberately has no runtime-project reference.
+`RuleIssue` and `LocationInfo` are structured planning facts, not a second
+reporting channel. The generator uses issues to suppress invalid emission and
+never calls `ReportDiagnostic`.
 
-`TypeRef.RouteKey` includes assembly identity for metadata types; `GlobalName` is
-used only for emission. Nullable annotations do not create distinct runtime
-routes. Closed generic arguments are included even though open-generic message
-and service declarations are rejected.
+Ownership is explicit:
 
-## 7. Discovery and incremental pipeline
+1. `FactsReader` reads directly declared handler interfaces and attributes from
+   source or metadata symbols and converts them immediately to DTOs.
+2. `RoutePolicy` classifies routes, rejects invalid message contracts, and owns
+   command cardinality.
+3. `BehaviorPolicy` owns behavior closure, constraint filtering, ordering, and
+   lifetime selection.
+4. `MediatorPlanner` derives tables, adapters, pipelines, terminals, and concrete
+   registrations from one valid route set.
+5. Emitters render only. Registration and dispatch cannot maintain separate route
+   lists.
 
-### Discovery rules
+Analyzer and generator may repeat planning work. They must call the same policy
+entry points; parity is preferable to two divergent implementations.
 
-1. **Messages:** inspect source class, record-class, and struct declarations with
-   base lists. Include concrete, closed `IMessage` types even when unused.
-   Classify `ICommand<TResponse>` before its non-generic base. Reject multiple
-   different response contracts and open-generic messages. Abstract message
-   declarations do not produce missing-command diagnostics.
-2. **Concrete command uses:** inspect unqualified/`this` `Send` calls inside a
-   host and calls whose receiver implements `IAutoMediatorService`. Record a
-   concrete first-argument type and location. This catches a referenced concrete
-   command without enumerating every metadata type. An interface-typed argument
-   cannot reveal its runtime concrete type and retains the runtime no-route
-   guard.
-3. **Handlers:** one provider considers methods named `Handle` or carrying
-   attributes. Keep a method when `[Handler]` is present or its containing class
-   implements `IAutoMediatorHandler`. A method selected by both paths has one
-   `MethodKey` and one route.
-4. **Conventional helpers:** on marker classes, `Handle` methods with no
-   message-shaped first parameter are ignored. Once a method is message-shaped,
-   malformed signatures are diagnosed. Explicit `[Handler]` methods are always
-   diagnosed when unsupported.
-5. **Signature:** first parameter is a closed message; optional second parameter
-   is `CancellationToken`; no other parameters. Reject generic/static methods,
-   `ref`/`out`, pointer/function-pointer forms, and unsupported returns.
-6. **Hosts:** discover marker classes and record classes, collect all partial
-   declarations, merge members, and validate every containing declaration. Host
-   configuration is only read on a marker host.
-7. **Handler services:** external services must be concrete, non-generic,
-   accessible to the host and registration, and DI-constructible. Self routes may
-   call private/protected methods directly; other services support public,
-   internal, or protected-internal methods in the same assembly.
+## 7. Analyzer architecture
+
+`AutoMediatorDiagnosticAnalyzer` enables concurrent execution and keeps no mutable
+static compilation state. It enables generated-code analysis callbacks so source
+symbol and invocation actions still run in generated compilations, but does not
+enable diagnostic reporting for generated code.
+
+### Per-compilation flow
+
+1. **Compilation start:** resolve runtime contracts by metadata name and create
+   compilation-local concurrent collections for declarations and concrete Send
+   uses. If the contracts are absent, do nothing.
+2. **Named-type symbol actions:** inspect source classes with directly declared
+   supported handler interfaces. Compiler interface-implementation errors are not
+   duplicated by CSAM diagnostics.
+3. **Invocation syntax actions:** recognize calls to the runtime `ISender.Send`
+   contracts, including calls through `IAutoMediator`. Same-named unrelated
+   methods are not mediator uses.
+4. **Compilation end:** read local behavior attributes and referenced manifests,
+   run shared policies, evaluate concrete Send uses, sort diagnostics by stable
+   key and location, report them, and release state.
+
+For a concrete command expression, the analyzer strips only a compiler conversion
+to the command interface and records the concrete operand type. It does not guess
+through an interface-held variable, type parameter, or arbitrary flow. Unknown
+runtime types retain their runtime guard.
+
+CSAM001 applies to concrete recognized Send uses, not every unused command
+declaration. CSAM002 and malformed handler/behavior declarations are reported
+without a composition root. Imported duplicate commands are diagnosed in the
+marked root, where the complete merged route set is available.
+
+## 8. Incremental discovery and provider graph
+
+### Handler discovery
+
+Typed interfaces are the discovery key. Use a cheap base-list predicate followed
+by an immediate semantic projection:
+
+```csharp
+var handlers = context.SyntaxProvider.CreateSyntaxProvider(
+    static (node, ct) =>
+        node is ClassDeclarationSyntax { BaseList: not null } or
+               RecordDeclarationSyntax { BaseList: not null },
+    static (ctx, ct) => FactsReader.ReadSourceHandler(ctx));
+```
+
+`ReadSourceHandler` inspects directly declared `INamedTypeSymbol.Interfaces`, not
+`AllInterfaces`. An inherited-only handler implementation does not silently create
+another concrete route. A derived class that is intended to be a separate handler
+must directly declare the closed handler interface.
+
+Only the three exact interface definitions are recognized:
+
+- `ICommandHandler<TCommand>`
+- `ICommandHandler<TCommand,TResponse>`
+- `IMessageHandler<TMessage>`
+
+Partial declarations can produce the same symbol through more than one syntax
+candidate. The planner de-duplicates by assembly-aware handler identity before
+building routes. Multiple distinct supported interfaces on one class produce
+multiple routes but only one concrete registration.
+
+Inherited-only implementations are simply not discovered; they do not receive a
+handler-shape diagnostic. A concrete Send use can still receive CSAM001 when no
+directly declared route exists.
+
+`FactsReader` rejects local handlers, messages, and response types that are
+inaccessible to generated namespace-level code, including inaccessible nested
+types. Imported types must additionally be visible from the composition root.
+Invalid declarations are excluded before manifest or mediator emission.
+
+No attribute is required on handlers. `ForAttributeWithMetadataName` remains
+useful for future opt-in declaration attributes, but it is not the sole handler
+discovery mechanism. Interface discovery feasibility is supported by peer
+generators; its cost in this repository remains an incrementality gate.
+
+### Composition and metadata projection
+
+An isolated `CompilationProvider` projection reads:
+
+- The current assembly's `AutoMediatorCompositionRootAttribute`.
+- Current-assembly behavior declarations.
+- `AutoMediatorManifestAttribute` values on referenced assemblies.
+
+The projection resolves imported handler symbols and immediately returns an
+equatable `CompilationFacts`, using the same `FactsReader` as source discovery.
+`MetadataReferencesProvider` alone cannot inspect assembly attributes. An equal
+projection must stop downstream invalidation even though the compilation itself
+changed.
 
 ### Provider graph
 
 ```text
-message declarations ----\
-handler declarations ------+--> GlobalPlan (routes + global diagnostics)
-concrete command uses ----/             |
-                                        +--> per-host HostPlan --> source + host diagnostics
-host declarations --> HostSetModel -----+--> RegistrationPlan --> AddAutoMediator
+source-local handlers --Collect--> LocalManifestPlan --> manifest emission
+        |
+        |                              imported handlers (root input only)
+        |                              /
+        +--> RoutePolicy + BehaviorPolicy +--> GlobalPlan
+CompilationFacts (root + behaviors) --------/         |
+composition root only:                         mediator + registration
 ```
 
-In signature form:
+Manifest emission is deliberately separate from merged root planning.
+`LocalManifestPlan` contains only valid handlers declared in the current source
+assembly. Imported handlers are never re-exported, and an imported duplicate or
+other root-only failure cannot remove or change a producer's manifest. Imports
+feed only mediator and registration emission in a marked composition root.
+
+There is no message-declaration inventory and no Send call-site provider in the
+generator. A Send-only edit can change analyzer diagnostics but does not alter
+routes. An unrelated message edit does not invalidate generation. Any real route
+change can regenerate the single central mediator; equal equatable plans prevent
+stale or unnecessary output.
+
+Every provider and planning boundary has a tracking name. Mutable dictionaries
+stay inside planners and become sorted equatable arrays at provider boundaries.
+Output uses stable hint names, ordinal ordering, `// <auto-generated />`,
+`[GeneratedCode]`, `#nullable enable`, classic block namespaces, fully qualified
+references, and normalized UTF-8/LF.
+
+## 9. Static dispatch and per-message paths
+
+A composition root emits one `GeneratedAutoMediator : IAutoMediator`. It has a
+single readonly `IServiceProvider` field and up to three disjoint static route
+families:
+
+- Response commands: `Dictionary<Type, Delegate>` containing closed response
+  dispatch delegates.
+- Non-response commands: `Dictionary<Type, __AM_CommandDispatch>`.
+- Events: `Dictionary<Type, __AM_PublishDispatch>`.
+
+Tables are initialized once per generated mediator type and never mutated.
+Lookup uses `GetType()` as the exact key. Static adapters take the current scope's
+provider as an argument and capture no mediator instance. Empty families emit no
+table and retain their defined fallback.
+
+Always-table is a v1 simplicity choice, not a performance claim. Benchmarks must
+compare chains and tables across route counts, hot/cold calls, known/unknown types,
+and static-initialization cost before a hybrid mechanism is considered.
+
+### Response Send
 
 ```csharp
-messages.Collect()
-    .Combine(handlers.Collect())
-    .Combine(commandUses.Collect())
-    .Select((inputs, ct) => RouteAnalyzer.AnalyzeGlobal(...));
+private delegate global::System.Threading.Tasks.ValueTask<TResponse>
+    __AM_ResponseDispatch<TResponse>(
+        global::System.IServiceProvider services,
+        global::CSteroid.AutoMediator.ICommand<TResponse> command,
+        global::System.Threading.CancellationToken cancellationToken);
 
-hostDeclarations.Collect()
-    .Select((declarations, ct) => HostPlanner.MergeDeclarations(...))
-    .Combine(globalPlan)
-    .SelectMany((inputs, ct) => HostPlanner.BuildHosts(...));
-
-hostSet.Combine(globalPlan)
-    .Select((inputs, ct) => RegistrationPlanner.Build(...));
-```
-
-Global command cardinality and malformed-route diagnostics are reported from the
-`GlobalPlan` output, including when there are zero hosts. They are never copied
-into every host. Host accessibility, self-route selection, lifetime
-compatibility, and member collisions are host-plan concerns.
-
-A host-local edit does not rerun global route analysis. It can rebuild the host
-set, but equal unaffected `HostPlan` values stop downstream emission. A real
-route-table change intentionally invalidates every host because every host has
-the same fixed dispatch surface and direct route cases. Registration changes
-only when its derived services, lifetimes, or attach requirements change.
-
-Use `.WithTrackingName(...)` at each discovery, analysis, planning, and emission
-boundary. Do not put a mutable `Dictionary<,>` into a pipeline value; use a
-dictionary locally during analysis, then convert to sorted equatable arrays.
-
-### Route analysis ownership
-
-`RouteAnalyzer` is the single owner of message classification, return matching,
-and global command cardinality. `HostPlanner` is the single owner of host
-accessibility, self-versus-external resolution, lifetime checks, and collisions.
-Emitters render plans and do not revalidate them.
-
-The command universe is the union of:
-
-- concrete closed source command declarations;
-- command types known from handler candidates;
-- concrete command types observed at recognized `Send` call sites.
-
-Invalid command routes are omitted. Valid unrelated hosts and routes still emit.
-This avoids both arbitrary handler selection and a cascade of duplicate-member or
-missing-overload compiler errors.
-
-## 8. Generated host shape
-
-The host partial contains no runtime route table, reflection invocation,
-`dynamic`, or separate context object. The fixed methods select exact-type route
-helpers. Every valid host has the same three-method surface, subject to configured
-accessibility.
-
-```csharp
-// <auto-generated />
-#nullable enable
-
-partial class MailService
-{
-    private global::System.IServiceProvider? __am_sp;
-    private global::System.Lazy<global::App.OrderService>? __am_orderService;
-    private global::System.Lazy<global::App.AuditService>? __am_auditService;
-
-    internal void __AutoMediator_Attach(global::System.IServiceProvider services)
+private static readonly global::System.Collections.Generic.Dictionary<
+    global::System.Type, global::System.Delegate> __am_responseRoutes =
+    new global::System.Collections.Generic.Dictionary<
+        global::System.Type, global::System.Delegate>
     {
-        if (services is null)
-            throw new global::System.ArgumentNullException(nameof(services));
-        if (__am_sp is not null)
-            throw new global::System.InvalidOperationException(
-                "This AutoMediator host is already attached.");
+        {
+            typeof(global::App.CreateOrder),
+            new __AM_ResponseDispatch<global::App.OrderId>(
+                __AM_Dispatch_CreateOrder)
+        }
+    };
 
-        __am_orderService = new global::System.Lazy<global::App.OrderService>(
-            () => global::Microsoft.Extensions.DependencyInjection
-                .ServiceProviderServiceExtensions
-                .GetRequiredService<global::App.OrderService>(services));
-        __am_auditService = new global::System.Lazy<global::App.AuditService>(
-            () => global::Microsoft.Extensions.DependencyInjection
-                .ServiceProviderServiceExtensions
-                .GetRequiredService<global::App.AuditService>(services));
-
-        // Publish attached state only after every lazy slot is initialized.
-        __am_sp = services;
-    }
-
-    // Send, Publish, and route helpers follow.
-}
-```
-
-`Lazy<T>` uses execution-and-publication mode, so concurrent calls through a
-singleton host do not resolve a singleton/scoped slot more than once. Attach is
-single-shot and occurs before DI publishes the host; it is not a concurrent
-reconfiguration API. Transient handlers deliberately have no lazy field.
-
-### Send with response
-
-```csharp
-protected global::System.Threading.Tasks.ValueTask<TResponse> Send<TResponse>(
+public global::System.Threading.Tasks.ValueTask<TResponse> Send<TResponse>(
     global::CSteroid.AutoMediator.ICommand<TResponse> command,
-    global::System.Threading.CancellationToken ct = default)
+    global::System.Threading.CancellationToken cancellationToken = default)
 {
     if (command is null)
         throw new global::System.ArgumentNullException(nameof(command));
-    if (__am_sp is null)
-        throw new global::System.InvalidOperationException(
-            "The AutoMediator host is not attached. Resolve it through AddAutoMediator.");
 
-    if (command.GetType() == typeof(global::App.CreateOrder))
+    if (__am_responseRoutes.TryGetValue(command.GetType(), out var route))
     {
-        return __AM_Send_CreateOrder<TResponse>(
-            (global::App.CreateOrder)(object)command, ct);
+        return ((__AM_ResponseDispatch<TResponse>)route)(
+            _services, command, cancellationToken);
     }
 
     throw new global::System.InvalidOperationException(
-        "No exact AutoMediator command route for " + command.GetType().FullName + ".");
-}
-
-private async global::System.Threading.Tasks.ValueTask<TResponse>
-    __AM_Send_CreateOrder<TResponse>(
-        global::App.CreateOrder command,
-        global::System.Threading.CancellationToken ct)
-{
-    global::App.OrderId result = await __am_orderService!.Value
-        .Handle(command, ct)
-        .ConfigureAwait(false);
-    return (TResponse)(object)result;
-}
-```
-
-The response cast is safe because discovery proved that the concrete command has
-exactly one `ICommand<TResponse>` contract and the handler's unwrapped return is
-exactly that type. A value-type response can box once; that is an accepted v1
-tradeoff for a fixed generic surface.
-
-A synchronous `TResponse` handler returns
-`new ValueTask<TResponse>((TResponse)(object)handler.Handle(...))`. `Task<T>` and
-`ValueTask<T>` are awaited exactly once. No route uses covariance on `Task<T>`.
-
-### Send without response
-
-```csharp
-protected global::System.Threading.Tasks.ValueTask Send(
-    global::CSteroid.AutoMediator.ICommand command,
-    global::System.Threading.CancellationToken ct = default)
-{
-    if (command is null)
-        throw new global::System.ArgumentNullException(nameof(command));
-    if (__am_sp is null)
-        throw new global::System.InvalidOperationException(
-            "The AutoMediator host is not attached. Resolve it through AddAutoMediator.");
-
-    if (command.GetType() == typeof(global::App.DeleteOrder))
-    {
-        __am_orderService!.Value.Handle((global::App.DeleteOrder)(object)command);
-        return default;
-    }
-
-    // This also rejects a response-bearing command erased to ICommand.
-    throw new global::System.InvalidOperationException(
-        "No exact non-generic AutoMediator command route for " +
+        "No exact AutoMediator response-command route for " +
         command.GetType().FullName + ".");
 }
+
+private static global::System.Threading.Tasks.ValueTask<global::App.OrderId>
+    __AM_Dispatch_CreateOrder(
+        global::System.IServiceProvider services,
+        global::CSteroid.AutoMediator.ICommand<global::App.OrderId> command,
+        global::System.Threading.CancellationToken cancellationToken)
+    => __AM_Send_CreateOrder(
+        services,
+        (global::App.CreateOrder)command,
+        cancellationToken);
 ```
 
-For non-generic commands, `Task` maps to `new ValueTask(handler.Handle(...))` and
-`ValueTask` returns directly. Result-bearing handlers are invalid rather than
-having their response discarded.
+The closed delegate cast is sound because:
 
-### Publish
+1. `ICommand<TResponse>` is invariant.
+2. A valid message has exactly one response contract.
+3. The table key is the exact concrete runtime command type.
+4. The adapter is closed over that same response type.
+5. Invalid and duplicate routes have no table entry.
+
+Only the delegate reference and message are cast. No response result passes
+through `object`, and there is no `(TResponse)(object)result` cast. A value-type
+command can still be boxed at its interface boundary; that separate cost is not
+claimed away.
+
+### Non-response Send and Publish
+
+The non-response delegate accepts `(IServiceProvider, ICommand,
+CancellationToken)`. A response command erased to `ICommand` has no non-response
+entry and throws; its result is never discarded.
+
+Publish uses an equivalent delegate accepting `IMessage`. After null and
+`message is ICommand` checks, a missing publish entry returns
+`default(ValueTask)`. Unknown and zero-handler events are deliberate no-ops.
+Dictionary enumeration order is never used for publication order.
+
+### Strongly typed terminal
+
+Each terminal knows its concrete message, response, and handler types:
 
 ```csharp
-protected global::System.Threading.Tasks.ValueTask Publish(
-    global::CSteroid.AutoMediator.IMessage message,
-    global::System.Threading.CancellationToken ct = default)
+private static global::System.Threading.Tasks.ValueTask<global::App.OrderId>
+    __AM_Send_CreateOrderTerminal(
+        global::System.IServiceProvider services,
+        global::App.CreateOrder command,
+        global::System.Threading.CancellationToken cancellationToken)
 {
-    if (message is null)
-        throw new global::System.ArgumentNullException(nameof(message));
-    if (__am_sp is null)
-        throw new global::System.InvalidOperationException(
-            "The AutoMediator host is not attached. Resolve it through AddAutoMediator.");
-    if (message is global::CSteroid.AutoMediator.ICommand)
-        throw new global::System.ArgumentException(
-            "Commands must be dispatched with Send.", nameof(message));
+    var handler =
+        (global::CSteroid.AutoMediator.ICommandHandler<
+            global::App.CreateOrder, global::App.OrderId>)
+        global::Microsoft.Extensions.DependencyInjection
+            .ServiceProviderServiceExtensions
+            .GetRequiredService<global::App.CreateOrderHandler>(services);
 
-    if (message.GetType() == typeof(global::App.OrderCreated))
-    {
-        return __AM_Publish_OrderCreated(
-            (global::App.OrderCreated)(object)message, ct);
-    }
-
-    // Zero-handler, unknown, and derived-only event cases are deliberate no-ops.
-    return default;
-}
-
-private async global::System.Threading.Tasks.ValueTask __AM_Publish_OrderCreated(
-    global::App.OrderCreated message,
-    global::System.Threading.CancellationToken ct)
-{
-    // Ordinal route order: AuditService.Record, then OrderService.Handle.
-    __am_auditService!.Value.Record(message); // void: invoke, never await.
-    await __am_orderService!.Value.Handle(message, ct).ConfigureAwait(false);
+    return handler.Handle(command, cancellationToken);
 }
 ```
 
-For all-synchronous publication the helper is non-`async` and returns
-`default(ValueTask)`, avoiding CS1998. `Task<T>` and `ValueTask<T>` event results
-are awaited once and discarded; synchronous `T` results are discarded by an
-ordinary invocation statement. Every fault propagates and stops later handlers.
+The exact closed interface invocation supports public and explicit interface
+implementations. Handler resolution remains lazy and uses the provider belonging
+to the caller's current scope.
 
-A self route substitutes `this.Method(...)` or a direct private method call and
-emits no lazy slot or `GetRequiredService` for the host. A transient external
-handler instead emits `GetRequiredService<T>(__am_sp)` at each handler-method
-invocation.
+## 10. Execution, publication, and DI
 
-### Runtime behavior insertion
+### ValueTask execution
 
-When behaviors ship, the route terminal remains the direct handler/fan-out code
-above. A generated wrapper resolves the corresponding closed behavior interfaces,
-builds the delegate chain in reverse registration order, and invokes the first
-behavior. No behaviors means the terminal runs directly. Send and Publish keep
-their public signatures and the attach model does not change.
+Typed interfaces replace the old six-return-shape normalizer:
 
-## 9. Generated DI registration
+- Response terminals return the handler's `ValueTask<TResponse>` directly.
+- Non-response command terminals return `ValueTask` directly.
+- A single-subscriber publish terminal returns the subscriber's `ValueTask`
+  directly.
+- Multi-subscriber publication awaits each subscriber once, sequentially, with
+  `ConfigureAwait(false)`; the first fault stops the route.
 
-Registration is emitted once per assembly from the same valid host/route plans.
-It is internal and assembly-unique, avoiding public extension-type collisions
-when a process references several generated assemblies.
+No synchronous `void`/result invocation, `Task` wrapping, result discarding, or
+`ValueTask<T>.AsTask()` publication conversion remains in the core emitter.
+Every `ValueTask` is consumed exactly once. Synchronous handlers express
+completion through their return value rather than a separate method shape.
+
+### Scoped mediator and aliases
+
+The generated registration owns the mediator constructor, so it can construct it
+directly without reconstructing user code:
 
 ```csharp
-// <auto-generated />
-#nullable enable
+services.TryAddScoped(sp => new GeneratedAutoMediator(sp));
+services.TryAddScoped<IAutoMediator>(
+    sp => sp.GetRequiredService<GeneratedAutoMediator>());
+services.TryAddScoped<ISender>(
+    sp => sp.GetRequiredService<IAutoMediator>());
+services.TryAddScoped<IPublisher>(
+    sp => sp.GetRequiredService<IAutoMediator>());
+```
 
-namespace Microsoft.Extensions.DependencyInjection
+By default, the three public interfaces alias the same scoped mediator instance.
+A pre-registered custom `IAutoMediator` is preserved and becomes the target of
+the generated `ISender`/`IPublisher` aliases. Independently pre-registered
+`ISender` or `IPublisher` descriptors are also preserved as intentional overrides;
+the single-instance guarantee applies only where those independent overrides do
+not exist.
+
+The mediator has no mutable per-handler state. Resolving it from the current scope
+gives it that scope's provider; injecting a scoped mediator into a singleton
+remains an ordinary captive dependency for `ValidateScopes` to reject.
+
+### Concrete handler registration
+
+Each concrete handler is registered once even when it implements several handler
+interfaces:
+
+```csharp
+services.TryAddScoped<global::App.OrderHandlers>();
+services.TryAddScoped<global::App.AuditHandler>();
+```
+
+`HandlerLifetimeAttribute` selects scoped, singleton, or transient registration;
+scoped is the default. Dispatch resolves the concrete type for every handler
+invocation. Microsoft DI therefore owns all reuse semantics:
+
+- Scoped: one instance per scope, including multiple routes on the same class.
+- Singleton: the container-owned singleton.
+- Transient: a new resolution per handler-method invocation.
+
+There are no `??=` fields and no exactly-once or concurrency claims to invent.
+The generator does not independently register both a concrete handler and its
+handler interface as implementation descriptors; doing so could create separate
+scoped instances. If direct handler-interface injection is supported later, it
+must alias the canonical concrete registration.
+
+For publication, the emitter writes the compile-time ordered concrete handler
+list. It does not resolve `IEnumerable<IMessageHandler<T>>`, depend on runtime
+registration order, or discover additional runtime subscribers.
+
+`TryAdd` preserves a pre-registered concrete descriptor and makes repeated calls
+idempotent. Because the mediator no longer caches handlers or imposes a lifetime
+on user hosts, a custom concrete handler lifetime does not invalidate generated
+field logic. Consumers remain responsible for normal DI correctness and should
+use `ValidateScopes`, and optionally `ValidateOnBuild`, in tests.
+
+Removing a handler removes its route, adapter, pipeline, terminal, manifest entry,
+and now-unused registration. Removing one interface from a multi-route handler
+removes only that route; the concrete registration remains while any route uses
+it.
+
+## 11. Compile-time-selected runtime behaviors
+
+### Selection
+
+`AutoMediatorBehaviorAttribute` accepts a supported non-generic closed behavior
+class or an open generic class definition of arity one or two.
+
+1. Response Send closes against
+   `IPipelineBehavior<TConcreteMessage,TResponse>`. Non-response Send and Publish
+   close against `IPipelineBehavior<TConcreteMessage>`.
+2. A non-generic behavior is selected only when it implements the exact closed
+   interface. Variance does not opt a base-message behavior into another route.
+3. An open generic behavior is closed with the concrete route arguments. Roslyn
+   checks all substituted constraints. Constraint failure means the behavior is
+   not selected for that route; it is not a route error.
+4. Abstract/static classes, unsupported generic shapes, open constructed
+   leftovers, inaccessible selected closures, and unsupported contracts are
+   diagnosed.
+5. Duplicate attributes for the same behavior type are CSAM015.
+6. Order by `Order` ascending, then assembly-aware behavior type identity using
+   ordinal comparison. Lower `Order` is outermost. DI registration order does not
+   control execution order.
+
+Only composition-root behavior declarations apply to the merged local/imported
+route set. Producer-assembly behavior declarations do not implicitly become
+global in a consuming root.
+
+### Closed registration and resolution
+
+For a selected open generic behavior, registration contains only the closed
+concrete type:
+
+```csharp
+services.TryAddScoped<global::App.LoggingBehavior<
+    global::App.CreateOrder, global::App.OrderId>>();
+```
+
+Each distinct closed behavior type is registered once at its declared lifetime.
+Resolution is a closed `GetRequiredService<LoggingBehavior<CreateOrder,OrderId>>`
+call on every dispatch. There are no behavior fields, open-generic behavior
+descriptors, runtime behavior enumeration, or runtime additions/removals.
+
+### Pipeline shape and honest cost
+
+With no selected behavior, a route calls its terminal directly. Otherwise the
+emitter unrolls the fixed chain in reverse order:
+
+```csharp
+private static global::System.Threading.Tasks.ValueTask<global::App.OrderId>
+    __AM_Send_CreateOrder(
+        global::System.IServiceProvider services,
+        global::App.CreateOrder command,
+        global::System.Threading.CancellationToken cancellationToken)
 {
-    [global::System.CodeDom.Compiler.GeneratedCode(
-        "CSteroid.Generator.AutoMediator", "1.0.0")]
-    internal static class CSteroidAutoMediatorRegistration_MyAssembly
-    {
-        public static global::Microsoft.Extensions.DependencyInjection.IServiceCollection
-            AddAutoMediator(
-                this global::Microsoft.Extensions.DependencyInjection.IServiceCollection services)
-        {
-            if (services is null)
-                throw new global::System.ArgumentNullException(nameof(services));
+    global::CSteroid.AutoMediator.AutoMediatorNext<
+        global::App.CreateOrder, global::App.OrderId> terminal =
+        (message, ct) => __AM_Send_CreateOrderTerminal(services, message, ct);
 
-            global::Microsoft.Extensions.DependencyInjection.Extensions
-                .ServiceCollectionDescriptorExtensions
-                .TryAddScoped<global::App.OrderService>(services);
-            global::Microsoft.Extensions.DependencyInjection.Extensions
-                .ServiceCollectionDescriptorExtensions
-                .TryAddScoped<global::App.AuditService>(services);
+    var logging =
+        (global::CSteroid.AutoMediator.IPipelineBehavior<
+            global::App.CreateOrder, global::App.OrderId>)
+        services.GetRequiredService<global::App.LoggingBehavior<
+            global::App.CreateOrder, global::App.OrderId>>();
 
-            global::Microsoft.Extensions.DependencyInjection.Extensions
-                .ServiceCollectionDescriptorExtensions
-                .TryAddScoped<global::App.MailService>(services, sp =>
-                {
-                    var host = global::Microsoft.Extensions.DependencyInjection
-                        .ActivatorUtilities.CreateInstance<global::App.MailService>(sp);
-                    host.__AutoMediator_Attach(sp);
-                    return host;
-                });
+    global::CSteroid.AutoMediator.AutoMediatorNext<
+        global::App.CreateOrder, global::App.OrderId> step =
+        (message, ct) => logging.Handle(message, terminal, ct);
 
-            return services;
-        }
-    }
+    return step(command, cancellationToken);
 }
 ```
 
-Select `TryAddSingleton`, `TryAddScoped`, or `TryAddTransient` from the derived
-lifetime model. All extension calls are fully qualified; generated code never
-relies on a consumer's `using` directives or global usings.
+Multiple behaviors are unrolled in reverse so lower `Order` is outermost and no
+loop-variable capture bug occurs. Every behavior is invoked through its exact
+closed interface, as handlers are, so explicit interface implementations compile.
+Non-response Send uses the non-generic continuation. Publish places one behavior
+chain around the whole sequential fan-out, not one chain per subscriber.
 
-A host-plus-handler class has one registration, using the host factory so every
-resolved instance is attached. If both lifetime attributes are explicitly present
-with different values, report `CSAM013`; otherwise one explicitly configured
-lifetime applies to the whole class.
+The message/token-forwarding continuation avoids recapturing the original message
+and token and permits their deliberate replacement. It does not prove
+allocation-free execution: delegates and closure/display objects can still
+allocate for the provider, behavior, and downstream continuation. A struct-based
+pipeline requires a separate design and benchmarks.
 
-Registration is derived only from valid hosts and the routes reachable from
-those hosts. Removing a handler method therefore removes its route, any now
-unused lazy field, and its registration when no valid host route still needs the
-service. The generator is stateless; stale artifacts are not retained.
+## 12. Cross-assembly architecture
 
-## 10. Diagnostics
+Cross-assembly support is a v1 release feature, not a claim that ordinary DI
+registration can create compile-time route knowledge. The root generator still
+needs concrete message, response, and handler types to emit static tables and
+closed pipelines.
 
-Descriptors are static, unique, and parameterized. `LocationInfo` is converted
-back to `Location` only in source-output callbacks. Diagnostics are sorted by ID,
-stable key, and location with ordinal comparisons. Cancellation is not caught and
-converted into a generator error.
+### Producer manifest
 
-| ID | Severity | Location | Rule and emission behavior |
+Every assembly with valid source-local handlers emits one versioned assembly
+attribute per concrete handler type:
+
+```csharp
+[assembly: global::CSteroid.AutoMediator.AutoMediatorManifest(
+    1, typeof(global::App.CreateOrderHandler))]
+```
+
+A multi-route handler appears once. The manifest is a handler-type inventory, not
+a serialized route protocol. It contains no method names, return shapes, behavior
+selections, executable adapters, or per-route duplicate payloads. The consumer
+uses the `Type` constant to obtain the handler symbol and `FactsReader` derives
+its exact closed interfaces, message/response types, lifetime, and accessibility.
+
+Manifests contain only source-local handlers. Referenced manifests are never
+re-exported, and imported duplicates or other root-only failures do not affect a
+producer's exported inventory. Each imported handler is de-duplicated by its
+assembly-aware type identity.
+
+This requires handler-producing projects to reference the same NuGet so their
+generator emits manifests. A metadata assembly containing typed handlers but no
+manifest is not implicitly scanned in v1; an explicit assembly-list scanner can
+be designed later if demand justifies its compilation cost.
+
+### Composition root import
+
+`[assembly: AutoMediatorCompositionRoot]` opts the current assembly into:
+
+1. Importing manifests from referenced assemblies.
+2. Merging local and imported handler declarations through the same policies.
+3. Diagnosing unsupported manifest versions, inaccessible imported types, and
+   duplicate command routes across the merged set.
+4. Emitting the central static mediator and all closed behavior selections.
+5. Owning concrete registration for local and imported handlers and behaviors.
+
+Imported handlers and their message/response types must be public or effectively
+visible through `InternalsVisibleTo`. The root never imports producer behavior
+attributes implicitly. A producer that is not a composition root emits manifests
+but no mediator or `AddAutoMediator` surface, avoiding unused dispatch engines in
+handler libraries.
+
+Multiple roots can import the same producer; each root owns an independent
+mediator and registration plan. The generated `AddAutoMediator` extension is
+assembly-local so same-named extensions in referenced roots do not create an
+ambiguous public API.
+
+## 13. Diagnostics
+
+All CSAM diagnostics belong to the analyzer. Descriptors are static, unique, and
+parameterized. Neither component catches cancellation and converts it into a
+generator failure. Invalid routes never produce table entries or executable
+delegate casts; unrelated valid routes still generate.
+
+IDs retired from the host/method architecture are not reused for unrelated rules.
+
+| ID | Severity | Location | Rule and safe-emission behavior |
 | --- | --- | --- | --- |
-| CSAM001 | Error | Command declaration, concrete Send use, or best available candidate | No valid handler for a concrete closed command. Report even with no hosts; omit the route. |
-| CSAM002 | Error | Second and subsequent handler methods in ordinal order | More than one valid command handler. Omit all routes for that command. |
-| CSAM003 | Error | Offending host or containing declaration | Host and every containing type must be partial. Skip host source and registration. |
-| CSAM004 | Error | Host declaration | Static, abstract, struct, open-generic host, generic container, inaccessible type, or no usable public constructor. Skip host source and registration. |
-| CSAM005 | Warning | Handler method | Unsupported signature other than CSAM008/CSAM010. Ignore the candidate. |
-| CSAM006 | Error | Handler method; host-specific message | Method/type is not accessible from that host. Omit only that host route; private/protected self routes remain valid. |
-| CSAM007 | Error | Singleton host or lifetime attribute | Singleton host would capture a scoped external handler. Omit that host route. Transient per-dispatch routes do not trigger this rule. |
-| CSAM008 | Error | Handler return type or method | Wrong unwrapped `ICommand<T>` response, missing required response, or result on non-generic command. Ignore the candidate globally. |
-| CSAM009 | Error | Colliding source/inherited member | Accessible source or inherited `Send`/`Publish`, or a reserved generated helper/attach/field name. Skip the host partial and registration. |
-| CSAM010 | Warning | Handler method | Generic, static, ref/out, or otherwise specifically unsupported method form. Ignore the candidate. |
-| CSAM011 | Error | Handler class | Abstract, static, open-generic, inaccessible, or non-DI-constructible external handler service. Its external routes are invalid. |
-| CSAM012 | Error | Message declaration or handler parameter | Multiple response contracts, open-generic message, or exact dispatch can never match an abstract/interface route. Exclude the message/route. |
-| CSAM013 | Error | Attribute application | Undefined enum/lifetime value, conflicting host/handler lifetime on one class, or host configuration on a non-host. |
+| CSAM001 | Error | Concrete recognized Send use | No valid route for that concrete command and Send family. No diagnostic on unused declarations or unprovable interface-held uses. |
+| CSAM002 | Error | Second and subsequent handler declarations | More than one valid concrete handler for a command. Omit all routes for that command. |
+| CSAM006 | Error | Handler/message/response declaration | A local type is inaccessible to generated namespace-level code, or an imported type is invisible to the composition root. Exclude the affected route and any invalid local manifest entry. |
+| CSAM011 | Error | Handler class | Abstract/static/open-generic handler or no usable DI construction shape. Exclude affected declarations. Inherited-only implementations remain undiscovered without a CSAM011 diagnostic. |
+| CSAM012 | Error | Handler interface or message | Multiple response contracts, open-generic/abstract/interface exact route, response command handled as non-response, or command declared as an event handler. Exclude the route. |
+| CSAM013 | Error | Handler lifetime attribute | Invalid lifetime value. Exclude the invalid declaration rather than guessing a lifetime. |
+| CSAM014 | Error | Behavior attribute/type | Invalid behavior declaration, generic shape, or no supported behavior contract. Exclude the declaration. |
+| CSAM015 | Error | Duplicate behavior attributes | Duplicate declaration for one behavior type. Exclude the ambiguous set. |
+| CSAM016 | Error | Behavior attribute/type | Selected closed behavior is inaccessible or non-DI-constructible. Omit that selection and retain other valid components. |
+| CSAM017 | Error | Referenced assembly or root attribute | Unsupported/malformed manifest version or payload. Exclude the affected import. |
 
-For `CSAM009`, reserve generated implementation names and conservatively reject
-any source-declared or accessible inherited member named `Send` or `Publish`.
-An inherited overload can otherwise be a better match than the generated
-interface-based method and silently hijack dispatch; normal C# hiding rules are
-not a sufficient check.
+CSAM003, CSAM004, CSAM005, CSAM007, CSAM008, CSAM009, and CSAM010 are retired:
+partial-host rules, constructor reconstruction, method-signature conventions,
+host captive analysis, free-form return matching, member collisions, and
+static/generic method rules no longer exist. Ordinary C# interface diagnostics
+replace custom handler signature diagnostics. Ordinary DI validation replaces
+host-specific lifetime inference.
 
-Suppress `CSAM001` when `CSAM008`, `CSAM011`, or `CSAM012` already reports an
-error that explains the same missing route. If only warning-level invalid
-candidates remain, still report `CSAM001`; a warning must never make a required
-command route appear valid.
+CSAM001 is suppressed when another diagnostic already explains the same missing
+route. Warning-only rejection never makes a command route valid. A concrete
+`Publish(command)` diagnostic can be added without changing runtime semantics if
+migration evidence shows the runtime guard is insufficient.
 
-A code fix for `CSAM003` is post-v1 and requires a separate Workspaces-referencing
-code-fix project. It is not part of the generator package.
+## 14. MediatR migration
 
-## 11. Testing strategy
+See [Migrating MediatR to CSteroid.AutoMediator](automediatr-migration.md) for the
+before/after sample, mechanical mapping, and semantic boundaries.
 
-### Unit and snapshot tests
+## 15. Testing and evidence strategy
 
-Reuse the existing xUnit/Roslyn harness for basic compilation and runtime tests,
-but add strict result APIs rather than relying only on substring checks.
+### Contracts, analyzer, and shared-policy tests
 
-- Verify snapshots for hint names and generated source: Send shapes, Publish
-  fan-out, self host, nested host, record host, global namespace, accessibility,
-  lifetimes, and behaviors.
-- Compile generated output and assert no added errors. Always assert a required
-  hint exists before checking its contents; the current helper returns an empty
-  string for a missing hint.
-- Exercise every return shape for generic Send, non-generic Send, and Publish.
-  Include the synchronous-void Publish regression test and await-once checks for
-  every `ValueTask`.
-- Test exact-type guards with derived messages, null arguments, unknown commands,
-  erased response commands, commands passed to Publish, and zero-handler events.
-- Test marker plus `[Handler]` de-duplication, overload ordering, conventional
-  helper ignoring, explicit malformed methods, and all diagnostic IDs,
-  severities, messages, and source locations.
-- Test source and inherited `Send`/`Publish` collisions, partial containers,
-  stable hint names, global qualification, nullable output, and generated-code
-  metadata.
-- Add DTO equality tests, including `EquatableArray<T>` default/empty behavior
-  and assembly-aware `TypeRef` identity.
+- Compile all public contracts on `netstandard2.0`; prove response invariance,
+  handler variance, and invariant behavior interfaces with positive and negative
+  compilation cases.
+- Run the analyzer without the generator and verify every ID, severity, location,
+  ordering, and suppression rule through `Compilation.WithAnalyzers`.
+- Assert the generator driver reports no CSAM diagnostics.
+- Feed identical source and metadata facts through analyzer and generator policy
+  entry points and compare valid/invalid route sets.
+- Cover direct interface discovery, partial de-duplication, multiple interfaces
+  per class, explicit implementations, inherited-only declarations, inaccessible
+  local nested handlers/messages/responses, concrete Send uses, conversions, and
+  unknown interface-held uses.
 
-### Real DI runtime tests
+### Emission and runtime tests
 
-Use `ServiceCollection` with real scopes:
+- Snapshot and compile empty, one-route, and many-route tables for all route
+  families.
+- Cover reference/value responses, struct messages, synchronous and asynchronous
+  `ValueTask` completion, global qualification, stable hints, nullable output, and
+  UTF-8/LF determinism.
+- Assert response source contains no result-object cast and invokes one exact
+  closed delegate.
+- Test unknown/derived messages, erased response commands, nulls, and commands
+  passed to Publish.
+- Test zero/one/many subscriber Publish, synchronous completion, sequential
+  ordering, await-once behavior, and fail-fast propagation.
+- Test explicit interface invocation and multi-route handlers with one shared
+  scoped concrete registration.
 
-- Existing host constructor dependencies are supplied without a mediator
-  constructor parameter.
-- Lazy scoped/singleton handlers resolve at most once per host; DI still controls
-  sharing across hosts and scopes.
-- Transient handlers resolve per handler-method invocation and are never cached.
-- Singleton-to-scoped is rejected; singleton-to-singleton/transient runs.
-- Host-handler classes have one attached registration and self routes never
-  re-enter the host factory.
-- Publish order is sequential and deterministic; a slow first handler completes
-  before the second starts; failure stops later handlers.
-- Repeated `AddAutoMediator` does not duplicate descriptors; pre-registered
-  custom handlers are respected.
-- Unattached use and double attach fail with the documented exceptions.
-- Runtime behaviors wrap Send once and Publish once, preserve registration order,
-  propagate results/faults, and add no behavior-specific public dispatch API.
+### DI and behavior tests
 
-### Incremental and determinism tests
+- Resolve all three mediator interfaces and verify their default scoped aliasing,
+  custom `IAutoMediator` replacement, and intentional independent narrow-interface
+  overrides.
+- Use real scopes with `ValidateScopes`; cover scoped/singleton/transient handlers,
+  repeated registration, custom concrete descriptors, and handler-to-mediator
+  dependencies without claiming singleton captive safety.
+- Snapshot closed behavior selections and registrations; assert no open-generic
+  descriptor or runtime behavior enumeration.
+- Cover constraint inclusion/exclusion, exact interface selection, implicit and
+  explicit behavior implementations, duplicate declarations, inaccessible
+  closures, and every lifetime.
+- Verify numeric order, ordinal tie-breaking, outermost semantics, message/token
+  forwarding and replacement, terminal execution exactly once, exception and
+  cancellation propagation, and one chain around an entire Publish fan-out.
+- Do not assert that a nonempty delegate pipeline is allocation-free.
 
-Extend the harness to retain the updated `CSharpGeneratorDriver` and expose
-`GeneratorDriverRunResult` and tracked steps:
+### Cross-assembly, incremental, migration, and benchmark gates
 
-- An unrelated syntax edit leaves outputs cached or unchanged according to the
-  declared step contract; do not claim every step must be `Cached`.
-- A host-local edit does not rerun global route analysis and only changes the
-  affected host plan; registration remains equal unless effective registration
-  inputs changed.
-- A route edit intentionally invalidates all host plans; equal registration is
-  retained when possible.
-- Removing a handler removes its field, call, switch arm, behavior terminal, and
-  now-unused registration.
-- Global diagnostics appear once with many hosts and still appear with no hosts.
-- Repeated runs and shuffled syntax-tree inputs produce byte-identical UTF-8/LF
-  output and identical diagnostic ordering.
+- Build a two-assembly Application/WebApi slice and prove manifest import, root
+  registration, explicit implementations, local/imported accessibility, duplicate
+  commands, unsupported versions, behavior ownership, assembly-aware manifest
+  de-duplication, and that imported handlers are never re-exported.
+- Retain `CSharpGeneratorDriver` tracked-step tests. Unrelated edits and Send-only
+  edits do not change generated output; partial candidates de-duplicate; equal
+  compilation projections and plans remain cached.
+- Repeat runs and shuffle syntax trees to prove byte-identical output and stable
+  diagnostic ordering. Measure interface discovery and manifest projection in a
+  large synthetic solution.
 
-### Packed consumer integration test
+- Migrate a representative MediatR sample, compile and run both before/after
+  projects, and document every semantic boundary rather than estimating migration
+  percentages.
+- Benchmark tables versus chains, mediator versus handwritten dispatch, sync/async
+  completion, response delegate casts, publish fan-out, and behavior chains.
+  Include allocations and generator build cost.
 
-A ProjectReference sample does not validate the NuGet layout. The integration
-fixture must:
+The samples enable `EmitCompilerGeneratedFiles` so consumers can inspect the
+generated source. CI builds the samples; behavioral assertions remain in the
+generator test project.
 
-1. Pack `CSteroid.AutoMediator` in Release.
-2. Inspect the `.nupkg` entries and dependencies.
-3. Create a temporary consumer with only a `PackageReference` to the produced
-   package and no analyzer/runtime project references.
-4. Restore, build, and run a scoped Send/Publish/self-host/behavior scenario.
-5. Prove the analyzer loaded from `analyzers/dotnet/cs`, runtime types came from
-   `lib/netstandard2.0`, transitive dependencies restored, and public attributes
-   were not duplicated.
+## 16. Design rationale
 
-The Web API sample additionally enables `EmitCompilerGeneratedFiles` for
-inspection and provides a small endpoint-level self-check in CI.
+The architecture uses typed handlers with an injected mediator as the only core
+model. The reasons are consumer-facing, not an assumed dispatch-speed win:
 
-## 12. Milestones and acceptance criteria
+- Typed interfaces make handler signatures compiler-enforced and preserve the
+  familiar MediatR handler/caller structure.
+- A generator-owned mediator eliminates attachment, partial-type rules, user
+  constructor reconstruction, host collisions, and host-is-handler special cases.
+- Ordinary interface injection makes consumer unit tests independent of a real
+  container.
+- One central plan avoids duplicating tables and resolution state per host.
+- The useful dispatch, analyzer, behavior, packaging, and verification mechanisms
+  survive because they are independent of the caller shell.
 
-| # | Deliverable | Done when |
-| --- | --- | --- |
-| 1 | Runtime contracts, generator skeleton, hybrid package | Both projects target netstandard2.0; solution builds; Release pack contains exactly the intended lib/analyzer payloads and no duplicate attributes. |
-| 2 | Equatable discovery and global route validation | Full signature matrix and DTO equality pass; no-host and unused-command diagnostics work; no Roslyn objects remain in models. |
-| 3 | Send vertical slice | Generic and non-generic Send compile and run for sync/Task/ValueTask, exact response matching, unknown routes, and single self route. |
-| 4 | Publish and removal | Fan-out order, sync/async result handling, fail-fast behavior, zero-handler no-op, and stale-field/call/registration removal tests pass. |
-| 5 | DI, attach, lifetimes, nested hosts | Real-scope tests pass; host-handler has one registration; singleton/scoped mismatch and all host-shape rules are enforced. |
-| 6 | Diagnostics and incrementality hardening | CSAM001-CSAM013 each have severity/location tests; inherited collision regression passes; retained-driver and byte-determinism tests pass. |
-| 7 | Runtime pipeline behaviors | Send and one-Publish-chain semantics, ordering, lifetimes, exceptions, cancellation, snapshots, and real-DI tests pass without changing caller usage. |
-| 8 | Sample and shipping validation | Sample.WebApi self-check passes; isolated nupkg consumer restores/builds/runs; full solution build/test and pack pass in CI. |
-| 9 | Cross-assembly handlers (post-core) | Versioned manifests import public/internals-visible handlers, command conflicts are diagnosed, root registration imports external handlers, and a multi-project package consumer runs. |
-| 10 | V2 backlog | Compile-time behaviors, base/interface route matching, dynamic AOT-safe construction, and CSAM003 code fix are designed separately. |
+The design keeps three constraints explicit:
 
-Milestones 1-8 form the v1 release plan. Milestone 9 is not required to claim
-single-assembly v1 correctness.
+1. Typed interfaces do not support the old six free-form return shapes, so v1
+   deliberately chooses one `ValueTask` contract instead of claiming both.
+2. A message-typed continuation requires invariant behavior interfaces; response
+   command covariance is also rejected to preserve closed delegate safety.
+3. Mediator injection does not eliminate cross-assembly metadata. A small
+   versioned handler-type manifest remains, while route serialization and
+   executable DI fallback adapters do not.
 
-## 13. Cross-assembly design path
-
-Do not claim that `MetadataReferencesProvider` alone can inspect assembly
-attributes: it provides reference objects, not `IAssemblySymbol` attribute data.
-The later implementation must use a transform with a `Compilation`, inspect
-referenced assembly manifests, and immediately convert them to equatable DTOs.
-This recomputes on compilation changes; equal manifest DTOs must prevent
-unnecessary downstream emission.
-
-Each handler-producing assembly can emit a versioned, internal assembly-manifest
-attribute and route entries. Keeping the manifest attribute internal and
-assembly-local avoids turning a serialization format into public runtime API.
-The consuming root generator merges local and imported routes, applies the same
-command-cardinality and accessibility rules, and registers externally accessible
-handlers in the root `AddAutoMediator` plan.
-
-That milestone must explicitly specify manifest versioning, duplicate routes
-across assemblies, `InternalsVisibleTo`, and registration ownership. The initial
-cross-assembly scope should require a host in the composition-root assembly;
-a library-only host with an external composition root needs a separate public
-registration design rather than accumulating ambiguous extension methods.
-
-## 14. Synthesis decision
-
-The arena compared direct host dispatch (candidate A) with a private per-host
-dispatch context (candidate B). The Kimi cross-judge scored A 28/30 and B 25/30
-and selected A. Both candidates independently converged on a fixed generic/
-interface-based host surface, attach-based construction, exact runtime-type
-checks, and sequential fail-fast Publish.
-
-The synthesized design uses A's direct dispatch, internal assembly-safe
-registration, transient handling, and source-plus-call-site command discovery.
-It grafts B's finer `GlobalPlan` to `HostPlan`/`RegistrationPlan` pipeline,
-assembly-aware type identity, and diagnostic cascade suppression. B's additional
-private context was rejected because it adds a type and forwarding layer without
-improving the caller contract or an invariant that direct generated helpers do
-not already own.
-
-The cross-judge also found four defects now corrected here: generator-local
-configuration enums replace unavailable runtime enum references; inherited
-`Send`/`Publish` members participate in collision checks; registration is
-internal and assembly-unique; singleton hosts may use per-dispatch transient
-handlers.
+Quantitative claims—complexity percentages, migration percentages, performance
+multipliers, “zero reflection,” “100% AOT safe,” and closure-free pipelines—are
+not architecture facts. They are excluded until reproduced by local measurements.
 
 ### Red-flag screen
 
-- **Interface depth:** three host operations hide route selection, normalization,
-  resolution, publication, and behavior composition. Public options expose only
-  caller policy, not compiler stages.
-- **Split ownership:** global route invariants, host planning, and runtime DI
-  lifetimes each have one owner. Emitters do not maintain parallel route lists.
-- **Two ways to do one task:** there is one construction path and one dispatch
-  surface. The two required handler discovery forms feed one de-duplicated route
-  stream.
-- **Importable internals:** generated registration is assembly-local; attach is
-  internal; fields and helpers are private; generator DTOs are analyzer-only.
-- **Hand-synced lists:** routes, lazy slots, self calls, and registrations derive
-  from the same validated plans.
-- **Information leakage:** no Roslyn type, route table, manifest, or transport
-  representation enters the caller-facing runtime API.
+- **Interface depth:** three narrow caller interfaces hide static dispatch,
+  scoped resolution, publication, and behavior composition without modifying
+  consumer classes.
+- **Split ownership:** shared policies own validity; the analyzer reports; the
+  planner owns safe emission; Microsoft DI owns service construction and reuse.
+- **Two ways to do one task:** one handler model, one caller model, one dispatch
+  mechanism, one registration path, and one cross-assembly metadata path.
+- **Importable internals:** tables, adapters, and terminals are private; the
+  generated mediator is internal; manifests contain metadata only.
+- **Hand-synced lists:** local manifests derive from a local-only handler plan;
+  root routes, pipelines, and registrations derive from the same merged root
+  plan. Imports never feed back into manifest emission.
+- **Unsupported certainty:** no unmeasured performance/AOT/allocation claim, no
+  hidden exactly-once field semantics, and no invented external DI lifetime
+  knowledge.
 
-## 15. Tradeoffs and remaining risks
+## 17. Tradeoffs and remaining risks
 
-- We accept runtime no-route failures for interface-typed or otherwise unknown
-  concrete commands in exchange for a fixed three-method surface and support for
-  interface-held messages.
-- We accept a checked generic response cast and possible one-time boxing of
-  value-type responses in exchange for avoiding per-message host overloads.
-- We accept strict errors for every concrete source command without a handler,
-  even if unused. If contract-heavy assemblies make this too noisy, relax it only
-  through a deliberate later policy, not silent warning downgrade.
-- We accept `ActivatorUtilities` and attached provider state in exchange for
-  preserving existing constructors. This is not a fully AOT-safe construction
-  story; generated constructor-specific factories are future work.
-- We accept per-host lazy scoped/singleton fields in exchange for avoiding
-  repeated resolution; transient services remain per-dispatch to preserve DI
-  semantics.
-- We accept same-assembly v1 routing in exchange for avoiding a speculative
-  cross-assembly manifest and public registration protocol.
+- Requiring `ValueTask` gives one compiler-checked contract and simple emitters,
+  but every MediatR `Task` handler needs a mechanical signature migration.
+- Interface-based discovery avoids per-handler attributes but scans more syntax
+  candidates than attribute-only discovery. Its IDE cost must be measured.
+- A scoped mediator matches common application scopes and lazy handler resolution,
+  but normal captive-dependency rules remain; the architecture does not make
+  singleton consumers safely capture scoped services.
+- Concrete handler resolution preserves fixed routes, deterministic publication,
+  and shared scoped instances, but does not by itself make arbitrary runtime
+  interface registrations part of a route.
+- Static tables accept type-initialization cost at every route count in exchange
+  for one deterministic v1 mechanism and no response-result erasure.
+- Compile-time behavior immutability trades runtime flexibility for deterministic
+  applicability/order and closed registration.
+- Manifests require the generator in handler-producing projects and an explicit
+  composition root. This is deliberate in exchange for predictable imports and no
+  whole-referenced-assembly scan.
+- Analyzer and generator repeat shared planning work. Parity tests and realistic
+  compilation performance are release gates.
 
-## 16. Next implementation step
+## 18. References
 
-Implement milestone 1 as the package and test-harness skeleton, then build the
-equatable discovery models and `RouteAnalyzer` against the caller examples before
-writing the first host emitter.
+- MediatR: https://github.com/LuckyPennySoftware/MediatR
+- martinothamar/Mediator: https://github.com/martinothamar/Mediator
+- Immediate.Handlers: https://github.com/ImmediatePlatform/Immediate.Handlers
+- Wolverine handlers: https://wolverinefx.net/guide/handlers/
+- Foundatio.Mediator: https://github.com/foundatiofx/Foundatio.Mediator
+- Roslyn incremental-generator cookbook:
+  https://github.com/dotnet/roslyn/blob/main/docs/features/incremental-generators.cookbook.md
+- Roslyn analyzer/generator diagnostics guidance:
+  https://github.com/dotnet/roslyn/issues/71709
+- NativeAOT deployment:
+  https://learn.microsoft.com/en-us/dotnet/core/deploying/native-aot/
+- AOT-compatible library guidance:
+  https://devblogs.microsoft.com/dotnet/creating-aot-compatible-libraries/
