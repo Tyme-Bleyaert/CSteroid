@@ -6,113 +6,64 @@ namespace CSteroid.Benchmarks
     {
         internal static void RunAll()
         {
-            CheckRoutes<OneRoute>();
-            CheckRoutes<EightRoutes>();
-            CheckRoutes<ThirtyTwoRoutes>();
-            CheckBehaviors();
+            CheckComparisons();
             MediumGeneratorBuildBenchmarks.CheckCorrectness();
         }
 
-        private static void CheckRoutes<TSize>()
-            where TSize : IRouteSet
+        private static void CheckComparisons()
         {
-            var table = new DispatchTables<TSize>(BenchmarkServiceProvider.CreateHandlerScope());
-            var chain = new DispatchChains<TSize>(BenchmarkServiceProvider.CreateHandlerScope());
-            Assert(DispatchTables<TSize>.ResponseCount == TSize.Count, "Response table route count");
-            Assert(DispatchTables<TSize>.CommandCount == TSize.Count, "Command table route count");
-            Assert(DispatchTables<TSize>.PublishCount == TSize.Count, "Publish table route count");
-
-            for (var index = 0; index < TSize.Count; index++)
+            var benchmark = new MediumBenchmarks();
+            benchmark.Setup();
+            try
             {
-                Assert(Read(table.Send(RouteMessages.Responses[index])) == index, "Table response route " + index);
-                Assert(Read(chain.Send(RouteMessages.Responses[index])) == index, "Chain response route " + index);
+                Assert(Read(benchmark.Medium_Send_Response()) == 42, "Medium response");
+                Assert(Read(benchmark.MediatR_Send_Response()) == 42, "MediatR response");
+                Assert(benchmark.MediumSink.BehaviorCalls == 0, "Medium plain response behaviors");
+                Assert(benchmark.MediatRSink.BehaviorCalls == 0, "MediatR plain response behaviors");
 
-                var tableSink = table.Sink;
-                Read(table.Send(RouteMessages.Commands[index]));
-                Assert(table.Sink - tableSink == index + 1, "Table command route " + index);
+                var mediumCommands = benchmark.MediumSink.CommandCalls;
+                Read(benchmark.Medium_Send_Command());
+                Assert(benchmark.MediumSink.CommandCalls - mediumCommands == 1, "Medium command");
+                var mediatRCommands = benchmark.MediatRSink.CommandCalls;
+                Read(benchmark.MediatR_Send_Command());
+                Assert(benchmark.MediatRSink.CommandCalls - mediatRCommands == 1, "MediatR command");
 
-                var chainSink = chain.Sink;
-                Read(chain.Send(RouteMessages.Commands[index]));
-                Assert(chain.Sink - chainSink == index + 1, "Chain command route " + index);
+                var mediumPublish = benchmark.MediumSink.PublishCalls;
+                Read(benchmark.Medium_Publish());
+                Assert(benchmark.MediumSink.PublishCalls - mediumPublish == 6, "Medium Publish fan-out");
+                var mediatRPublish = benchmark.MediatRSink.PublishCalls;
+                Read(benchmark.MediatR_Publish());
+                Assert(benchmark.MediatRSink.PublishCalls - mediatRPublish == 6, "MediatR Publish fan-out");
 
-                tableSink = table.Sink;
-                Read(table.Publish(RouteMessages.Events[index]));
-                Assert(table.Sink - tableSink == index + 1, "Table Publish route " + index);
+                Assert(Read(benchmark.Medium_Send_Response_TwoBehaviors()) == 42, "Medium response pipeline");
+                Assert(benchmark.MediumSink.BehaviorCalls == 2, "Medium behavior count");
+                Assert(Read(benchmark.MediatR_Send_Response_TwoBehaviors()) == 42, "MediatR response pipeline");
+                Assert(benchmark.MediatRSink.BehaviorCalls == 2, "MediatR behavior count");
 
-                chainSink = chain.Sink;
-                Read(chain.Publish(RouteMessages.Events[index]));
-                Assert(chain.Sink - chainSink == index + 1, "Chain Publish route " + index);
+                // Delegates keep the compile-time unknown-route analyzer out of this runtime check.
+                Func<ICommand<int>, CancellationToken, ValueTask<int>> responseSend = benchmark.Medium.Send;
+                Func<ICommand, CancellationToken, ValueTask> commandSend = benchmark.Medium.Send;
+                Func<IMessage, CancellationToken, ValueTask> publish = benchmark.Medium.Publish;
+                AssertThrows<InvalidOperationException>(
+                    () => Read(responseSend(new UnknownMediumResponse(), default)),
+                    "Medium unknown response");
+                AssertThrows<InvalidOperationException>(
+                    () => Read(commandSend(new UnknownMediumCommand(), default)),
+                    "Medium unknown command");
+                AssertThrows<InvalidOperationException>(
+                    () => Read(publish(new UnknownMediumEvent(), default)),
+                    "Medium unknown Publish");
             }
-
-            CheckUnknownRoutes(
-                "Table " + TSize.Count,
-                command => table.Send(command),
-                command => table.Send(command),
-                message => table.Publish(message),
-                () => table.Sink);
-            CheckUnknownRoutes(
-                "Chain " + TSize.Count,
-                command => chain.Send(command),
-                command => chain.Send(command),
-                message => chain.Publish(message),
-                () => chain.Sink);
-
-            var consumer = new MediatorConsumer(table);
-            Assert(Read(consumer.Send(RouteMessages.Responses[0])) == 0, "Constructor-injected mediator");
+            finally
+            {
+                benchmark.Cleanup();
+            }
         }
 
-        private static void CheckUnknownRoutes(
-            string side,
-            Func<ICommand<int>, ValueTask<int>> responseSend,
-            Func<ICommand, ValueTask> commandSend,
-            Func<IMessage, ValueTask> publish,
-            Func<int> sink)
-        {
-            AssertThrows<InvalidOperationException>(() => responseSend(new UnknownResponse()), side + " unknown response");
-            AssertThrows<InvalidOperationException>(() => commandSend(new UnknownCommand()), side + " unknown command");
-
-            var before = sink();
-            Read(publish(new UnknownEvent()));
-            Assert(sink() == before, side + " unknown event must be a no-op");
-
-            AssertThrows<ArgumentNullException>(() => responseSend(null!), side + " null response command");
-            AssertThrows<ArgumentNullException>(() => commandSend(null!), side + " null command");
-            AssertThrows<ArgumentNullException>(() => publish(null!), side + " null message");
-            AssertThrows<ArgumentException>(() => publish(RouteMessages.Commands[0]), side + " Publish rejects commands");
-            AssertThrows<InvalidOperationException>(
-                () => commandSend((ICommand)RouteMessages.Responses[0]),
-                side + " erased response command");
-        }
-
-        private static void CheckBehaviors()
-        {
-            var mediator = new BehaviorMediator(BehaviorMediator.CreateScope());
-            Assert(Read(mediator.SendWithoutBehaviors(new BehaviorResponse(), default)) == 42, "Response without behavior");
-            Assert(mediator.ResponseBehaviorCalls == 0, "No response behavior selected");
-            Assert(Read(mediator.SendWithBehaviors(new BehaviorResponse(), default)) == 42, "Response fixed behavior chain");
-            Assert(mediator.ResponseBehaviorCalls == 2, "Two response behaviors execute once");
-
-            Read(mediator.SendWithoutBehaviors(new BehaviorCommand(), default));
-            Assert(mediator.Sink == 1 && mediator.CommandBehaviorCalls == 0, "Command without behavior");
-            Read(mediator.SendWithBehaviors(new BehaviorCommand(), default));
-            Assert(mediator.Sink == 2 && mediator.CommandBehaviorCalls == 2, "Command fixed behavior chain");
-
-            Read(mediator.PublishWithoutBehaviors(new BehaviorEvent(), default));
-            Assert(mediator.Sink == 8 && mediator.PublishBehaviorCalls == 0, "Publish without behavior");
-            Read(mediator.PublishWithBehaviors(new BehaviorEvent(), default));
-            Assert(mediator.Sink == 14, "Publish fixed chain preserves fan-out");
-            Assert(mediator.PublishBehaviorCalls == 2, "Publish chain wraps the whole fan-out once");
-        }
-
-        private static T Read<T>(ValueTask<T> valueTask)
-        {
-            return valueTask.GetAwaiter().GetResult();
-        }
-
-        private static void Read(ValueTask valueTask)
-        {
-            valueTask.GetAwaiter().GetResult();
-        }
+        private static T Read<T>(ValueTask<T> valueTask) => valueTask.GetAwaiter().GetResult();
+        private static T Read<T>(Task<T> task) => task.GetAwaiter().GetResult();
+        private static void Read(ValueTask valueTask) => valueTask.GetAwaiter().GetResult();
+        private static void Read(Task task) => task.GetAwaiter().GetResult();
 
         private static void AssertThrows<TException>(Action action, string message)
             where TException : Exception

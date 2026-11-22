@@ -6,10 +6,11 @@ namespace CSteroid.Generator.Medium
 {
     internal static class BehaviorPolicy
     {
-        internal static BehaviorSetPlan BuildDeclarationPlan(BehaviorSet set)
+        internal static BehaviorSetPlan BuildDeclarationPlan(
+            EquatableArray<BehaviorDeclarationFact> declarations)
         {
             var duplicateCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (var declaration in set.Declarations)
+            foreach (var declaration in declarations)
             {
                 if (declaration.BehaviorType is null)
                     continue;
@@ -19,7 +20,7 @@ namespace CSteroid.Generator.Medium
 
             var valid = new List<BehaviorDeclarationFact>();
             var issues = new List<RuleIssue>();
-            foreach (var declaration in set.Declarations)
+            foreach (var declaration in declarations)
             {
                 var declarationIssues = ValidateDeclaration(declaration);
                 if (declaration.BehaviorType is not null
@@ -80,7 +81,7 @@ namespace CSteroid.Generator.Medium
                     continue;
                 }
 
-                var closedType = CloseBehaviorType(declaration, arguments);
+                var closedType = declaration.BehaviorType!.Substitute(declaration.TypeParameterNames, arguments);
                 selections.Add(new BehaviorSelection(
                     declaration,
                     closedType,
@@ -175,7 +176,7 @@ namespace CSteroid.Generator.Medium
                 if (arity == 1)
                 {
                     if (contract.Kind != BehaviorContractKind.NonResponse
-                        || !IsTypeParameter(contract.MessageType, declaration.TypeParameterNames[0]))
+                        || !contract.MessageType.IsTypeParameter(declaration.TypeParameterNames[0]))
                     {
                         return false;
                     }
@@ -183,9 +184,9 @@ namespace CSteroid.Generator.Medium
                 else if (arity == 2)
                 {
                     if (contract.Kind != BehaviorContractKind.Response
-                        || !IsTypeParameter(contract.MessageType, declaration.TypeParameterNames[0])
+                        || !contract.MessageType.IsTypeParameter(declaration.TypeParameterNames[0])
                         || contract.ResponseType is null
-                        || !IsTypeParameter(contract.ResponseType, declaration.TypeParameterNames[1]))
+                        || !contract.ResponseType.IsTypeParameter(declaration.TypeParameterNames[1]))
                     {
                         return false;
                     }
@@ -196,12 +197,6 @@ namespace CSteroid.Generator.Medium
                 }
             }
             return declaration.Contracts.Count != 0;
-        }
-
-        private static bool IsTypeParameter(TypeRef type, string name)
-        {
-            return type.Kind == TypeRefKind.TypeParameter
-                && string.Equals(type.RouteKey, "!" + name + "|" + type.AssemblyName, StringComparison.Ordinal);
         }
 
         private static EquatableArray<TypeRef> GetRouteArguments(
@@ -245,7 +240,7 @@ namespace CSteroid.Generator.Medium
 
                 foreach (var constraintType in constraint.Types)
                 {
-                    var closedConstraint = CloseRouteKey(constraintType, declaration.TypeParameterNames, arguments);
+                    var closedConstraint = constraintType.Substitute(declaration.TypeParameterNames, arguments);
                     if (!SatisfiesTypeConstraint(argument, closedConstraint))
                         return false;
                 }
@@ -253,57 +248,21 @@ namespace CSteroid.Generator.Medium
             return true;
         }
 
-        private static bool SatisfiesTypeConstraint(TypeRef argument, string constraintRouteKey)
+        private static bool SatisfiesTypeConstraint(TypeRef argument, TypeRef constraint)
         {
-            if (string.Equals(argument.RouteKey, constraintRouteKey, StringComparison.Ordinal))
+            if (string.Equals(argument.RouteKey, constraint.RouteKey, StringComparison.Ordinal))
                 return true;
             foreach (var contract in argument.AllInterfaces)
             {
-                if (string.Equals(contract.RouteKey, constraintRouteKey, StringComparison.Ordinal))
+                if (string.Equals(contract.RouteKey, constraint.RouteKey, StringComparison.Ordinal))
                     return true;
             }
             for (var baseType = argument.BaseType; baseType is not null; baseType = baseType.BaseType)
             {
-                if (string.Equals(baseType.RouteKey, constraintRouteKey, StringComparison.Ordinal))
+                if (string.Equals(baseType.RouteKey, constraint.RouteKey, StringComparison.Ordinal))
                     return true;
             }
             return false;
-        }
-
-        private static string CloseRouteKey(
-            TypeRef type,
-            EquatableArray<string> typeParameterNames,
-            EquatableArray<TypeRef> arguments) =>
-            CloseRouteKey(type, typeParameterNames, arguments, false);
-
-        private static string CloseRouteKey(
-            TypeRef type,
-            EquatableArray<string> typeParameterNames,
-            EquatableArray<TypeRef> arguments,
-            bool nested)
-        {
-            if (type.Kind == TypeRefKind.TypeParameter)
-            {
-                for (int i = 0; i < typeParameterNames.Count; i++)
-                {
-                    if (string.Equals(type.RouteKey, "!" + typeParameterNames[i] + "|" + type.AssemblyName, StringComparison.Ordinal))
-                        return nested ? WithoutAssembly(arguments[i].RouteKey) : arguments[i].RouteKey;
-                }
-            }
-
-            if (type.TypeArguments.Count == 0)
-                return nested ? WithoutAssembly(type.RouteKey) : type.RouteKey;
-            var closedArguments = new string[type.TypeArguments.Count];
-            for (int i = 0; i < closedArguments.Length; i++)
-                closedArguments[i] = CloseRouteKey(type.TypeArguments[i], typeParameterNames, arguments, true);
-            var routeKey = type.MetadataIdentity + "<" + string.Join(",", closedArguments) + ">";
-            return nested ? routeKey : routeKey + "|" + type.AssemblyName;
-        }
-
-        private static string WithoutAssembly(string routeKey)
-        {
-            var separator = routeKey.LastIndexOf('|');
-            return separator < 0 ? routeKey : routeKey.Substring(0, separator);
         }
 
         private static bool HasExactContract(
@@ -318,7 +277,7 @@ namespace CSteroid.Generator.Medium
             {
                 if (contract.Kind != expectedKind
                     || !string.Equals(
-                        CloseRouteKey(contract.MessageType, declaration.TypeParameterNames, arguments),
+                        contract.MessageType.Substitute(declaration.TypeParameterNames, arguments).RouteKey,
                         route.Message.RouteKey,
                         StringComparison.Ordinal))
                 {
@@ -329,7 +288,7 @@ namespace CSteroid.Generator.Medium
                     return true;
                 if (contract.ResponseType is not null
                     && string.Equals(
-                        CloseRouteKey(contract.ResponseType, declaration.TypeParameterNames, arguments),
+                        contract.ResponseType.Substitute(declaration.TypeParameterNames, arguments).RouteKey,
                         route.Response!.RouteKey,
                         StringComparison.Ordinal))
                 {
@@ -337,40 +296,6 @@ namespace CSteroid.Generator.Medium
                 }
             }
             return false;
-        }
-
-        private static TypeRef CloseBehaviorType(
-            BehaviorDeclarationFact declaration,
-            EquatableArray<TypeRef> arguments)
-        {
-            var type = declaration.BehaviorType!;
-            if (!declaration.IsOpenGenericDefinition)
-                return type;
-
-            var globalArguments = new string[arguments.Count];
-            var routeArguments = new string[arguments.Count];
-            for (int i = 0; i < arguments.Count; i++)
-            {
-                globalArguments[i] = arguments[i].GlobalName;
-                routeArguments[i] = WithoutAssembly(arguments[i].RouteKey);
-            }
-
-            return new TypeRef(
-                type.MetadataIdentity + "<" + string.Join(",", routeArguments) + ">|" + type.AssemblyName,
-                declaration.GlobalDefinitionName + "<" + string.Join(", ", globalArguments) + ">",
-                type.AssemblyName,
-                false,
-                type.MetadataIdentity,
-                TypeRefKind.Named,
-                arguments,
-                false,
-                false,
-                false,
-                null,
-                new EquatableArray<TypeRef>(ImmutableArray<TypeRef>.Empty),
-                true,
-                false,
-                true);
         }
 
         private static RuleIssue? ValidateClosedBehavior(

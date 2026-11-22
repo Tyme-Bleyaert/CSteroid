@@ -130,6 +130,73 @@ namespace CSteroid.Generator.Medium
         internal bool IsReferenceType { get; }
         internal bool IsUnmanagedType { get; }
         internal bool HasPublicParameterlessConstructor { get; }
+
+        internal bool IsTypeParameter(string name) =>
+            Kind == TypeRefKind.TypeParameter
+            && string.Equals(RouteKey, "!" + name + "|" + AssemblyName, StringComparison.Ordinal);
+
+        internal TypeRef Substitute(
+            EquatableArray<string> typeParameterNames,
+            EquatableArray<TypeRef> arguments)
+        {
+            if (Kind == TypeRefKind.TypeParameter)
+            {
+                for (int i = 0; i < typeParameterNames.Count; i++)
+                {
+                    if (IsTypeParameter(typeParameterNames[i]))
+                        return arguments[i];
+                }
+            }
+
+            if (TypeArguments.Count == 0)
+                return this;
+
+            var closedArguments = ImmutableArray.CreateBuilder<TypeRef>(TypeArguments.Count);
+            var routeArguments = new string[TypeArguments.Count];
+            var globalArguments = new string[TypeArguments.Count];
+            foreach (var argument in TypeArguments)
+            {
+                var closed = argument.Substitute(typeParameterNames, arguments);
+                routeArguments[closedArguments.Count] = closed.NestedRouteKey;
+                globalArguments[closedArguments.Count] = closed.GlobalName;
+                closedArguments.Add(closed);
+            }
+
+            return new TypeRef(
+                MetadataIdentity + "<" + string.Join(",", routeArguments) + ">|" + AssemblyName,
+                DefinitionGlobalName + "<" + string.Join(", ", globalArguments) + ">",
+                AssemblyName,
+                false,
+                MetadataIdentity,
+                TypeRefKind.Named,
+                new EquatableArray<TypeRef>(closedArguments.ToImmutable()),
+                false,
+                false,
+                false,
+                null,
+                new EquatableArray<TypeRef>(ImmutableArray<TypeRef>.Empty),
+                true,
+                false,
+                true);
+        }
+
+        private string DefinitionGlobalName
+        {
+            get
+            {
+                var genericStart = GlobalName.IndexOf('<');
+                return genericStart < 0 ? GlobalName : GlobalName.Substring(0, genericStart);
+            }
+        }
+
+        private string NestedRouteKey
+        {
+            get
+            {
+                var separator = RouteKey.LastIndexOf('|');
+                return separator < 0 ? RouteKey : RouteKey.Substring(0, separator);
+            }
+        }
     }
 
     internal sealed record LocationInfo(string FilePath, TextSpan TextSpan, LinePositionSpan LineSpan);

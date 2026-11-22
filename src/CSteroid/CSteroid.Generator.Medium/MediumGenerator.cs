@@ -51,7 +51,7 @@ namespace CSteroid.Generator.Medium
                 })
                 .WithTrackingName(MergedPlanningTrackingName);
             var behaviorPlan = compilationFacts
-                .Select(static (facts, ct) => BehaviorPolicy.BuildDeclarationPlan(new BehaviorSet(facts.Behaviors)))
+                .Select(static (facts, ct) => BehaviorPolicy.BuildDeclarationPlan(facts.Behaviors))
                 .WithTrackingName(BehaviorPlanningTrackingName);
             var globalPlan = mergedHandlers.Combine(behaviorPlan).Combine(compilationFacts)
                 .Select(static (input, ct) => MediatorPlanner.Build(input.Left.Left, input.Left.Right, input.Right))

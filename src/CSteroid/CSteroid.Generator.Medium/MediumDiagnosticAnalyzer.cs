@@ -77,7 +77,7 @@ namespace CSteroid.Generator.Medium
             if (compilation.IsCompositionRoot)
                 facts.AddRange(compilation.ImportedHandlers);
             var handlerPlan = RoutePolicy.BuildDeclarationPlan(facts);
-            var behaviorPlan = BehaviorPolicy.BuildDeclarationPlan(new BehaviorSet(compilation.Behaviors));
+            var behaviorPlan = BehaviorPolicy.BuildDeclarationPlan(compilation.Behaviors);
             var global = MediatorPlanner.Build(handlerPlan, behaviorPlan, compilation);
             var issues = new List<RuleIssue>(global.Issues);
             foreach (var use in state.SendUses)

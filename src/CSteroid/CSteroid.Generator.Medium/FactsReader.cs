@@ -111,7 +111,7 @@ namespace CSteroid.Generator.Medium
             {
                 return new CompilationFacts(
                     false,
-                    behaviors.Declarations,
+                    behaviors,
                     Empty<HandlerDeclarationModel>(),
                     Empty<RuleIssue>());
             }
@@ -181,7 +181,7 @@ namespace CSteroid.Generator.Medium
             imported.Sort(static (left, right) => string.CompareOrdinal(left.HandlerType.RouteKey, right.HandlerType.RouteKey));
             return new CompilationFacts(
                 true,
-                behaviors.Declarations,
+                behaviors,
                 new EquatableArray<HandlerDeclarationModel>(imported.ToImmutable()),
                 new EquatableArray<RuleIssue>(issues.ToImmutable()));
         }
@@ -228,11 +228,19 @@ namespace CSteroid.Generator.Medium
 
         private static EquatableArray<TypeRef> ReadTypeArguments(ITypeSymbol symbol, bool includeRelations)
         {
-            if (symbol is not INamedTypeSymbol named || named.TypeArguments.Length == 0)
+            if (symbol is not INamedTypeSymbol named)
                 return Empty<TypeRef>();
-            var arguments = ImmutableArray.CreateBuilder<TypeRef>(named.TypeArguments.Length);
-            foreach (var argument in named.TypeArguments)
+            var arity = named.IsUnboundGenericType ? named.TypeParameters.Length : named.TypeArguments.Length;
+            if (arity == 0)
+                return Empty<TypeRef>();
+            var arguments = ImmutableArray.CreateBuilder<TypeRef>(arity);
+            for (int i = 0; i < arity; i++)
+            {
+                ITypeSymbol argument = named.IsUnboundGenericType
+                    ? named.TypeParameters[i]
+                    : named.TypeArguments[i];
                 arguments.Add(CreateTypeRef(argument, includeRelations));
+            }
             return new EquatableArray<TypeRef>(arguments.ToImmutable());
         }
 

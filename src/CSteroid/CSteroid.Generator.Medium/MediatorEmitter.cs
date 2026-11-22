@@ -24,7 +24,7 @@ namespace CSteroid.Generator.Medium
 
             var responseRoutes = new List<RoutePlan>();
             var commandRoutes = new List<RoutePlan>();
-            var eventRoutes = new SortedDictionary<string, List<RoutePlan>>(StringComparer.Ordinal);
+            var eventRoutes = new List<List<RoutePlan>>();
 
             foreach (var route in plan.Routes)
             {
@@ -37,21 +37,17 @@ namespace CSteroid.Generator.Medium
                         commandRoutes.Add(route);
                         break;
                     case RouteKind.Message:
-                        if (!eventRoutes.TryGetValue(route.Message.RouteKey, out var subscribers))
+                        if (eventRoutes.Count == 0
+                            || !string.Equals(
+                                eventRoutes[eventRoutes.Count - 1][0].Message.RouteKey,
+                                route.Message.RouteKey,
+                                StringComparison.Ordinal))
                         {
-                            subscribers = new List<RoutePlan>();
-                            eventRoutes.Add(route.Message.RouteKey, subscribers);
+                            eventRoutes.Add(new List<RoutePlan>());
                         }
-                        subscribers.Add(route);
+                        eventRoutes[eventRoutes.Count - 1].Add(route);
                         break;
                 }
-            }
-
-            responseRoutes.Sort(static (left, right) => CompareRoutes(left, right));
-            commandRoutes.Sort(static (left, right) => CompareRoutes(left, right));
-            foreach (var group in eventRoutes)
-            {
-                group.Value.Sort(static (left, right) => CompareSubscribers(left, right));
             }
 
             var writer = new CodeWriter();
@@ -101,24 +97,12 @@ namespace CSteroid.Generator.Medium
             foreach (var group in eventRoutes)
             {
                 writer.AppendLine();
-                EmitPublishRoute(writer, group.Value);
+                EmitPublishRoute(writer, group);
             }
 
             writer.CloseBlock();
             writer.CloseBlock();
             return writer.ToString();
-        }
-
-        private static int CompareRoutes(RoutePlan left, RoutePlan right)
-        {
-            var result = string.CompareOrdinal(left.Message.RouteKey, right.Message.RouteKey);
-            return result != 0 ? result : string.CompareOrdinal(left.MemberId, right.MemberId);
-        }
-
-        private static int CompareSubscribers(RoutePlan left, RoutePlan right)
-        {
-            var result = string.CompareOrdinal(left.HandlerType.RouteKey, right.HandlerType.RouteKey);
-            return result != 0 ? result : string.CompareOrdinal(left.MemberId, right.MemberId);
         }
 
         private static void WriteHeader(CodeWriter writer)
@@ -154,15 +138,15 @@ namespace CSteroid.Generator.Medium
 
         private static void EmitPublishTable(
             CodeWriter writer,
-            SortedDictionary<string, List<RoutePlan>> eventRoutes)
+            List<List<RoutePlan>> eventRoutes)
         {
             writer.AppendLine("private delegate global::System.Threading.Tasks.ValueTask __MED_PublishDispatch(global::System.IServiceProvider services, global::CSteroid.Medium.IMessage message, global::System.Threading.CancellationToken cancellationToken);");
             writer.AppendLine();
             writer.OpenBlock("private static readonly global::System.Collections.Generic.Dictionary<global::System.Type, __MED_PublishDispatch> __med_publishRoutes = new global::System.Collections.Generic.Dictionary<global::System.Type, __MED_PublishDispatch>");
-            foreach (var group in eventRoutes)
+            foreach (var subscribers in eventRoutes)
             {
-                var route = group.Value[0];
-                writer.AppendLine("{ typeof(" + route.Message.GlobalName + "), new __MED_PublishDispatch(__MED_Dispatch_Publish_" + PublishMemberId(group.Key) + ") },");
+                var route = subscribers[0];
+                writer.AppendLine("{ typeof(" + route.Message.GlobalName + "), new __MED_PublishDispatch(__MED_Dispatch_Publish_" + PublishMemberId(route.Message.RouteKey) + ") },");
             }
             writer.CloseBlock(";");
         }

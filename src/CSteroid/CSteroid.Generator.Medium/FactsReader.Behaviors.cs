@@ -6,12 +6,12 @@ namespace CSteroid.Generator.Medium
 {
     internal static partial class FactsReader
     {
-        internal static BehaviorSet ReadBehaviors(
+        internal static EquatableArray<BehaviorDeclarationFact> ReadBehaviors(
             Compilation compilation,
             MediumRuntimeContracts contracts)
         {
             if (contracts.BehaviorAttribute is null)
-                return new BehaviorSet(new EquatableArray<BehaviorDeclarationFact>(ImmutableArray<BehaviorDeclarationFact>.Empty));
+                return new EquatableArray<BehaviorDeclarationFact>(ImmutableArray<BehaviorDeclarationFact>.Empty);
 
             var declarations = ImmutableArray.CreateBuilder<BehaviorDeclarationFact>();
             foreach (var attribute in compilation.Assembly.GetAttributes())
@@ -30,7 +30,6 @@ namespace CSteroid.Generator.Medium
                 var contractsRead = ImmutableArray<BehaviorContractFact>.Empty;
                 ServiceShapeFact? shape = null;
                 var isOpenGenericDefinition = false;
-                var globalDefinitionName = string.Empty;
 
                 if (behaviorType is not null)
                 {
@@ -39,7 +38,6 @@ namespace CSteroid.Generator.Medium
                         : behaviorType;
                     shape = ReadServiceShape(definition);
                     isOpenGenericDefinition = behaviorType.IsUnboundGenericType;
-                    globalDefinitionName = GetDefinitionGlobalName(CreateTypeRef(behaviorType));
                     if (definition.TypeParameters.Length != 0)
                     {
                         var names = ImmutableArray.CreateBuilder<string>(definition.TypeParameters.Length);
@@ -57,7 +55,6 @@ namespace CSteroid.Generator.Medium
 
                 declarations.Add(new BehaviorDeclarationFact(
                     behaviorType is null ? null : CreateTypeRef(behaviorType),
-                    globalDefinitionName,
                     shape,
                     isOpenGenericDefinition,
                     new EquatableArray<string>(typeParameterNames),
@@ -73,7 +70,7 @@ namespace CSteroid.Generator.Medium
                 var result = string.CompareOrdinal(left.StableKey, right.StableKey);
                 return result != 0 ? result : left.Location.TextSpan.Start.CompareTo(right.Location.TextSpan.Start);
             });
-            return new BehaviorSet(new EquatableArray<BehaviorDeclarationFact>(declarations.ToImmutable()));
+            return new EquatableArray<BehaviorDeclarationFact>(declarations.ToImmutable());
         }
 
         private static BehaviorConstraintFact ReadBehaviorConstraint(ITypeParameterSymbol parameter)
@@ -138,13 +135,6 @@ namespace CSteroid.Generator.Medium
                     : string.CompareOrdinal(left.ResponseType?.RouteKey, right.ResponseType?.RouteKey);
             });
             return result.ToImmutable();
-        }
-
-        private static string GetDefinitionGlobalName(TypeRef behaviorType)
-        {
-            var globalName = behaviorType.GlobalName;
-            var genericStart = globalName.IndexOf('<');
-            return genericStart < 0 ? globalName : globalName.Substring(0, genericStart);
         }
 
         private static int ReadNamedInt32(AttributeData attribute, string name, int defaultValue)
