@@ -20,7 +20,7 @@ namespace CSteroid.Generator.AutoMediator
             }
 
             var argument = invocation.ArgumentList.Arguments[0].Expression;
-            var commandType = ReadConcreteCommandType(argument, semanticModel, contracts);
+            var commandType = ReadConcreteMessageType(argument, semanticModel, contracts.Command);
             if (commandType is null)
                 return null;
 
@@ -35,10 +35,33 @@ namespace CSteroid.Generator.AutoMediator
                 CreateLocation(invocation.SyntaxTree, invocation.Span));
         }
 
-        private static INamedTypeSymbol? ReadConcreteCommandType(
-            ExpressionSyntax expression,
+        internal static PublishUseFact? ReadPublishUse(
+            InvocationExpressionSyntax invocation,
             SemanticModel semanticModel,
             AutoMediatorRuntimeContracts contracts)
+        {
+            if (invocation.ArgumentList.Arguments.Count < 1 || invocation.ArgumentList.Arguments.Count > 2)
+                return null;
+            if (semanticModel.GetSymbolInfo(invocation).Symbol is not IMethodSymbol method
+                || !IsMediatorPublishMethod(method, contracts))
+            {
+                return null;
+            }
+
+            var argument = invocation.ArgumentList.Arguments[0].Expression;
+            var messageType = ReadConcreteMessageType(argument, semanticModel, contracts.Message);
+            if (messageType is null)
+                return null;
+
+            return new PublishUseFact(
+                CreateTypeRef(messageType),
+                CreateLocation(invocation.SyntaxTree, invocation.Span));
+        }
+
+        private static INamedTypeSymbol? ReadConcreteMessageType(
+            ExpressionSyntax expression,
+            SemanticModel semanticModel,
+            INamedTypeSymbol contract)
         {
             while (true)
             {
@@ -59,7 +82,7 @@ namespace CSteroid.Generator.AutoMediator
                 || type.TypeKind == TypeKind.Interface
                 || type.IsAbstract
                 || CreateTypeRef(type).ContainsTypeParameters
-                || !ImplementsContract(type, contracts.Command))
+                || !ImplementsContract(type, contract))
             {
                 return null;
             }
@@ -83,6 +106,22 @@ namespace CSteroid.Generator.AutoMediator
             return SymbolEqualityComparer.Default.Equals(firstType, contracts.Command)
                 || firstType is INamedTypeSymbol named
                     && SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, contracts.CommandOfT);
+        }
+
+        private static bool IsMediatorPublishMethod(
+            IMethodSymbol method,
+            AutoMediatorRuntimeContracts contracts)
+        {
+            if (!string.Equals(method.Name, "Publish", StringComparison.Ordinal)
+                || method.Parameters.Length < 1
+                || method.Parameters.Length > 2
+                || method.ContainingType.TypeKind != TypeKind.Interface
+                || !ImplementsContract(method.ContainingType, contracts.Publisher))
+            {
+                return false;
+            }
+
+            return SymbolEqualityComparer.Default.Equals(method.Parameters[0].Type, contracts.Message);
         }
 
         private static bool ImplementsContract(INamedTypeSymbol type, INamedTypeSymbol contract)

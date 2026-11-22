@@ -221,7 +221,7 @@ namespace CSteroid.Generator.AutoMediator
                 writer.CloseBlock();
                 writer.AppendLine();
             }
-            writer.AppendLine("return default(global::System.Threading.Tasks.ValueTask);");
+            writer.AppendLine("throw new global::System.InvalidOperationException(\"No exact AutoMediator publish route for \" + message.GetType().FullName + \".\");");
             writer.CloseBlock();
         }
 

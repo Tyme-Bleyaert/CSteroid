@@ -31,30 +31,22 @@ namespace Sample.WebApi
     public sealed class SampleWorkflow
     {
         private readonly IAutoMediator _mediator;
-        private readonly ISender _sender;
-        private readonly IPublisher _publisher;
 
-        public SampleWorkflow(
-            IAutoMediator mediator,
-            ISender sender,
-            IPublisher publisher,
-            RequestTrace trace)
+        public SampleWorkflow(IAutoMediator mediator, RequestTrace trace)
         {
             _mediator = mediator;
-            _sender = sender;
-            _publisher = publisher;
             Trace = trace;
         }
 
         public RequestTrace Trace { get; }
 
         public ValueTask<string> Ping(CancellationToken cancellationToken)
-            => _sender.Send(new Ping(), cancellationToken);
+            => _mediator.Send(new Ping(), cancellationToken);
 
         public ValueTask Record(CancellationToken cancellationToken)
             => _mediator.Send(new Record(), cancellationToken);
 
         public ValueTask Publish(CancellationToken cancellationToken)
-            => _publisher.Publish(new Pinged(), cancellationToken);
+            => _mediator.Publish(new Pinged(), cancellationToken);
     }
 }

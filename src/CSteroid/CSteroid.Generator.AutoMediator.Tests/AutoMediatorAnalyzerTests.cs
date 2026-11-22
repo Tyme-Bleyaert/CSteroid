@@ -10,7 +10,7 @@ public class AutoMediatorAnalyzerTests
     {
         var analyzer = new global::CSteroid.Generator.AutoMediator.AutoMediatorDiagnosticAnalyzer();
         Assert.Equal(
-            new[] { "CSAM001", "CSAM002", "CSAM006", "CSAM011", "CSAM012", "CSAM013", "CSAM014", "CSAM015", "CSAM016", "CSAM017" },
+            new[] { "CSAM001", "CSAM002", "CSAM006", "CSAM011", "CSAM012", "CSAM013", "CSAM014", "CSAM015", "CSAM016", "CSAM017", "CSAM018" },
             analyzer.SupportedDiagnostics.Select(descriptor => descriptor.Id));
         Assert.All(analyzer.SupportedDiagnostics, descriptor => Assert.Equal(DiagnosticSeverity.Error, descriptor.DefaultSeverity));
     }

@@ -245,6 +245,11 @@ namespace CSteroid.Generator.AutoMediator
         internal string StableKey => CommandType.RouteKey + "\0" + CommandKind + "\0" + Location.FilePath + "\0" + Location.TextSpan.Start;
     }
 
+    internal sealed record PublishUseFact(TypeRef MessageType, LocationInfo Location)
+    {
+        internal string StableKey => MessageType.RouteKey + "\0Publish\0" + Location.FilePath + "\0" + Location.TextSpan.Start;
+    }
+
     internal sealed record BehaviorStepPlan(TypeRef BehaviorType, int Lifetime);
 
     internal sealed record RoutePlan(

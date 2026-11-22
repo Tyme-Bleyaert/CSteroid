@@ -98,7 +98,7 @@ public class AutoMediatorPublishEmissionTests
     }
 
     [Fact]
-    public async Task UnknownEvent_IsSynchronousNoOp_AndNullOrCommandIsRejected()
+    public async Task UnknownEvent_Throws_AndNullOrCommandIsRejected()
     {
         var output = Generate("""
             using System;
@@ -119,9 +119,11 @@ public class AutoMediatorPublishEmissionTests
                     using var provider = services.BuildServiceProvider();
                     using var scope = provider.CreateScope();
                     var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
-                    var unknown = publisher.Publish(new UnknownNotice());
-                    if (!unknown.IsCompletedSuccessfully) return false;
-                    await unknown;
+                    try { await publisher.Publish(new UnknownNotice()); return false; }
+                    catch (InvalidOperationException exception)
+                    {
+                        if (!exception.Message.Contains(nameof(UnknownNotice), StringComparison.Ordinal)) return false;
+                    }
                     try { await publisher.Publish(new Command()); return false; }
                     catch (ArgumentException) { }
                     try { await publisher.Publish(null!); return false; }

@@ -281,10 +281,11 @@ await publisher.Publish(new DerivedOrderCreated(Guid.NewGuid()), CancellationTok
 // No IMessageHandler<OrderCreated> runs.
 ```
 
-No base-message handler or behavior runs. An unknown or zero-handler non-command
-message completes synchronously as a no-op. A command
-sent through `Send` still requires exactly one handler for its exact concrete
-command type; do not expect a base command handler to absorb derived commands.
+No base-message handler or behavior runs. A concrete Publish use with no valid
+handler produces CSAM018. An unknown route reached through an interface-held or
+otherwise unprovable message throws `InvalidOperationException`. A command sent
+through `Send` still requires exactly one handler for its exact concrete command
+type; do not expect a base command handler to absorb derived commands.
 
 `ICommand<TResponse>` is deliberately invariant. For example, an
 `ICommand<DerivedResponse>` is not an `ICommand<BaseResponse>`. Contravariance on
@@ -350,6 +351,9 @@ subscriber separately.
 - **Polymorphic dispatch:** base-class/interface fallback and covariance-based
   subscriber fan-out are intentionally absent. Publish the exact message type or
   invoke the required routes explicitly.
+- **Zero-handler notifications:** unlike MediatR's no-op publication, a concrete
+  Publish use without a valid handler is a compile-time CSAM018 error. Unknown
+  runtime routes throw rather than silently completing.
 - **Parallel/custom publication:** only sequential fail-fast publication is
   supported. Do not preserve a custom publisher behind `IPublisher` and assume its
   ordering, exception aggregation, or concurrency survives.

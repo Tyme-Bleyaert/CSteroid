@@ -23,7 +23,8 @@ namespace CSteroid.Generator.AutoMediator
             AutoMediatorDiagnostics.InvalidBehavior,
             AutoMediatorDiagnostics.DuplicateBehavior,
             AutoMediatorDiagnostics.InvalidClosedBehavior,
-            AutoMediatorDiagnostics.InvalidManifest);
+            AutoMediatorDiagnostics.InvalidManifest,
+            AutoMediatorDiagnostics.MissingPublishRoute);
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => Rules;
 
@@ -53,9 +54,16 @@ namespace CSteroid.Generator.AutoMediator
                     if (FactsReader.ReadSendUse(
                             (InvocationExpressionSyntax)syntaxContext.Node,
                             syntaxContext.SemanticModel,
-                            state.Contracts) is { } use)
+                            state.Contracts) is { } sendUse)
                     {
-                        state.SendUses.Add(use);
+                        state.SendUses.Add(sendUse);
+                    }
+                    else if (FactsReader.ReadPublishUse(
+                            (InvocationExpressionSyntax)syntaxContext.Node,
+                            syntaxContext.SemanticModel,
+                            state.Contracts) is { } publishUse)
+                    {
+                        state.PublishUses.Add(publishUse);
                     }
                 }, SyntaxKind.InvocationExpression);
                 start.RegisterCompilationEndAction(end => AnalyzeCompilation(end, state));
@@ -75,6 +83,11 @@ namespace CSteroid.Generator.AutoMediator
             foreach (var use in state.SendUses)
             {
                 if (RoutePolicy.EvaluateSendUse(use, handlerPlan) is { } issue)
+                    issues.Add(issue);
+            }
+            foreach (var use in state.PublishUses)
+            {
+                if (RoutePolicy.EvaluatePublishUse(use, handlerPlan) is { } issue)
                     issues.Add(issue);
             }
             issues.Sort(static (left, right) =>
@@ -112,6 +125,7 @@ namespace CSteroid.Generator.AutoMediator
             internal AutoMediatorRuntimeContracts Contracts { get; }
             internal ConcurrentDictionary<string, HandlerDeclarationModel> Handlers { get; } = new();
             internal ConcurrentBag<SendUseFact> SendUses { get; } = new();
+            internal ConcurrentBag<PublishUseFact> PublishUses { get; } = new();
         }
     }
 }

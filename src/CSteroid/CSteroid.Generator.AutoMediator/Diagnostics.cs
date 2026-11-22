@@ -14,6 +14,7 @@ namespace CSteroid.Generator.AutoMediator
         internal const string DuplicateBehaviorId = "CSAM015";
         internal const string InvalidClosedBehaviorId = "CSAM016";
         internal const string InvalidManifestId = "CSAM017";
+        internal const string MissingPublishRouteId = "CSAM018";
 
         private const string Category = "CSteroid.AutoMediator";
 
@@ -107,6 +108,15 @@ namespace CSteroid.Generator.AutoMediator
             isEnabledByDefault: true,
             customTags: WellKnownDiagnosticTags.CompilationEnd);
 
+        internal static readonly DiagnosticDescriptor MissingPublishRoute = new DiagnosticDescriptor(
+            id: MissingPublishRouteId,
+            title: "AutoMediator Publish use has no exact route",
+            messageFormat: "Message '{0}' has no valid exact Publish route; at least one handler is required",
+            category: Category,
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true,
+            customTags: WellKnownDiagnosticTags.CompilationEnd);
+
         internal static DiagnosticDescriptor ForRule(string ruleId)
         {
             switch (ruleId)
@@ -131,6 +141,8 @@ namespace CSteroid.Generator.AutoMediator
                     return InvalidClosedBehavior;
                 case InvalidManifestId:
                     return InvalidManifest;
+                case MissingPublishRouteId:
+                    return MissingPublishRoute;
                 default:
                     throw new System.ArgumentOutOfRangeException(nameof(ruleId), ruleId, "Unknown AutoMediator rule");
             }

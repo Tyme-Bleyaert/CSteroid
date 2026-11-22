@@ -31,7 +31,7 @@ private operation calls that operation directly.
 - Typed `ValueTask` and `ValueTask<TResponse>` handler contracts only.
 - Multiple handler interfaces on one concrete handler class.
 - Exact concrete message-type routing; no base-class or interface fallback.
-- Exactly one handler for a command; zero-to-many handlers for other messages.
+- Exactly one handler for a command; one or more handlers when an event is published.
 - Static type-keyed dispatch tables and strongly typed per-message paths.
 - Ordinary scoped mediator resolution and concrete handler registration.
 - Sequential, deterministic, fail-fast publication.
@@ -195,7 +195,7 @@ response types satisfy its contract and generic constraints.
 | Send cardinality | Exactly one valid handler. Missing concrete uses and duplicate declarations are analyzer errors. |
 | Non-response commands | Return non-generic `ValueTask`; response commands cannot be sent through the non-response route. |
 | Events | `IMessageHandler<TMessage>` returns non-generic `ValueTask`; no result-discarding handler form. |
-| Zero-handler events | Return a completed `ValueTask`; no behavior runs without a declared route. |
+| Missing event routes | A concrete Publish use with no valid handler is CSAM018. An unknown runtime route throws `InvalidOperationException`; no behavior runs without a declared route. |
 | Publish order | Sequential ordinal order by assembly-aware concrete handler identity. |
 | Publish failures | Fail fast; the original fault propagates and later handlers do not run. |
 | Publishing commands | Reject with `ArgumentException`; commands use Send. |
@@ -483,21 +483,24 @@ enable diagnostic reporting for generated code.
    supported handler interfaces. Compiler interface-implementation errors are not
    duplicated by CSAM diagnostics.
 3. **Invocation syntax actions:** recognize calls to the runtime `ISender.Send`
-   contracts, including calls through `IAutoMediator`. Same-named unrelated
-   methods are not mediator uses.
+   and `IPublisher.Publish` contracts, including calls through `IAutoMediator`.
+   Same-named unrelated methods are not mediator uses.
 4. **Compilation end:** read local behavior attributes and referenced manifests,
-   run shared policies, evaluate concrete Send uses, sort diagnostics by stable
+   run shared policies, evaluate concrete Send and Publish uses, sort diagnostics by stable
    key and location, report them, and release state.
 
-For a concrete command expression, the analyzer strips only a compiler conversion
-to the command interface and records the concrete operand type. It does not guess
-through an interface-held variable, type parameter, or arbitrary flow. Unknown
-runtime types retain their runtime guard.
+For a concrete command or event expression, the analyzer strips only a compiler
+conversion to the message interface and records the concrete operand type. It
+does not guess through an interface-held variable, type parameter, or arbitrary
+flow. Unknown runtime types retain their runtime guards.
 
 CSAM001 applies to concrete recognized Send uses, not every unused command
-declaration. CSAM002 and malformed handler/behavior declarations are reported
-without a composition root. Imported duplicate commands are diagnosed in the
-marked root, where the complete merged route set is available.
+declaration. CSAM018 applies the same rule to concrete Publish uses, including
+commands passed to Publish, and does not reject unused event declarations.
+Interface-held Send and Publish arguments are not guessed; their runtime guards
+remain necessary. CSAM002 and malformed handler/behavior declarations are
+reported without a composition root. Imported duplicate commands are diagnosed
+in the marked root, where the complete merged route set is available.
 
 ## 8. Incremental discovery and provider graph
 
@@ -678,9 +681,11 @@ CancellationToken)`. A response command erased to `ICommand` has no non-response
 entry and throws; its result is never discarded.
 
 Publish uses an equivalent delegate accepting `IMessage`. After null and
-`message is ICommand` checks, a missing publish entry returns
-`default(ValueTask)`. Unknown and zero-handler events are deliberate no-ops.
-Dictionary enumeration order is never used for publication order.
+`message is ICommand` checks, a missing publish entry throws
+`InvalidOperationException`. A concrete call with no valid handler is normally
+caught earlier by CSAM018; the runtime guard covers interface-held and otherwise
+unprovable calls. Dictionary enumeration order is never used for publication
+order.
 
 ### Strongly typed terminal
 
@@ -951,6 +956,7 @@ IDs retired from the host/method architecture are not reused for unrelated rules
 | CSAM015 | Error | Duplicate behavior attributes | Duplicate declaration for one behavior type. Exclude the ambiguous set. |
 | CSAM016 | Error | Behavior attribute/type | Selected closed behavior is inaccessible or non-DI-constructible. Omit that selection and retain other valid components. |
 | CSAM017 | Error | Referenced assembly or root attribute | Unsupported/malformed manifest version or payload. Exclude the affected import. |
+| CSAM018 | Error | Concrete recognized Publish use | No valid handler for that concrete event, or a command was passed to Publish. Unused event declarations and unprovable interface-held uses are not diagnosed. |
 
 CSAM003, CSAM004, CSAM005, CSAM007, CSAM008, CSAM009, and CSAM010 are retired:
 partial-host rules, constructor reconstruction, method-signature conventions,
@@ -959,10 +965,10 @@ static/generic method rules no longer exist. Ordinary C# interface diagnostics
 replace custom handler signature diagnostics. Ordinary DI validation replaces
 host-specific lifetime inference.
 
-CSAM001 is suppressed when another diagnostic already explains the same missing
-route. Warning-only rejection never makes a command route valid. A concrete
-`Publish(command)` diagnostic can be added without changing runtime semantics if
-migration evidence shows the runtime guard is insufficient.
+CSAM001 and CSAM018 are suppressed when another diagnostic already explains the
+same missing route. Warning-only rejection never makes a route valid. Plain
+records that implement neither `IMessage` nor `ICommand` are rejected by the C#
+compiler because the public contracts have no `object`-based overload.
 
 ## 14. MediatR migration
 
@@ -983,8 +989,8 @@ before/after sample, mechanical mapping, and semantic boundaries.
   entry points and compare valid/invalid route sets.
 - Cover direct interface discovery, partial de-duplication, multiple interfaces
   per class, explicit implementations, inherited-only declarations, inaccessible
-  local nested handlers/messages/responses, concrete Send uses, conversions, and
-  unknown interface-held uses.
+  local nested handlers/messages/responses, concrete Send and Publish uses,
+  conversions, plain-record compiler errors, and unknown interface-held uses.
 
 ### Emission and runtime tests
 
@@ -997,8 +1003,9 @@ before/after sample, mechanical mapping, and semantic boundaries.
   closed delegate.
 - Test unknown/derived messages, erased response commands, nulls, and commands
   passed to Publish.
-- Test zero/one/many subscriber Publish, synchronous completion, sequential
-  ordering, await-once behavior, and fail-fast propagation.
+- Test one/many subscriber Publish, missing concrete route diagnostics,
+  unknown-route runtime failures, sequential ordering, await-once behavior, and
+  fail-fast propagation.
 - Test explicit interface invocation and multi-route handlers with one shared
   scoped concrete registration.
 

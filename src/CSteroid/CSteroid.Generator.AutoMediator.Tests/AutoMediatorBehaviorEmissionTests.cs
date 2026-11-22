@@ -190,7 +190,7 @@ public class AutoMediatorBehaviorEmissionTests
     }
 
     [Fact]
-    public async Task UnknownPublishRoute_SkipsGenericBehavior()
+    public async Task UnknownPublishRoute_ThrowsAndSkipsGenericBehavior()
     {
         var output = Generate("""
             using System.Threading;
@@ -219,8 +219,15 @@ public class AutoMediatorBehaviorEmissionTests
                     services.AddAutoMediator();
                     using var provider = services.BuildServiceProvider();
                     using var scope = provider.CreateScope();
-                    await scope.ServiceProvider.GetRequiredService<IPublisher>().Publish(new Unknown());
-                    return State.Calls;
+                    try
+                    {
+                        await scope.ServiceProvider.GetRequiredService<IPublisher>().Publish(new Unknown());
+                        return -1;
+                    }
+                    catch (System.InvalidOperationException)
+                    {
+                        return State.Calls;
+                    }
                 }
             }
             """);

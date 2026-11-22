@@ -79,6 +79,29 @@ public class RuntimeContractTests
     }
 
     [Fact]
+    public void PlainRecords_CannotBeSentOrPublished()
+    {
+        var compilation = AutoMediatorTestCompilation.Create("""
+            using CSteroid.AutoMediator;
+            public sealed record Plain;
+            public sealed class Consumer
+            {
+                public void Call(ISender sender, IPublisher publisher)
+                {
+                    _ = sender.Send(new Plain());
+                    _ = publisher.Publish(new Plain());
+                }
+            }
+            """);
+
+        var errors = compilation.GetDiagnostics()
+            .Where(diagnostic => diagnostic.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
+            .ToArray();
+        Assert.Equal(2, errors.Length);
+        Assert.All(errors, diagnostic => Assert.Equal("CS1503", diagnostic.Id));
+    }
+
+    [Fact]
     public void HandlerInterfaces_AreContravariantOnMessageAndInvariantOnResponse()
     {
         AssertContravariant(typeof(ICommandHandler<>));

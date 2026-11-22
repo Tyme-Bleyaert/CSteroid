@@ -102,6 +102,33 @@ namespace CSteroid.Generator.AutoMediator
                 use.CommandKind == RouteKind.CommandWithResponse ? "response" : "non-response");
         }
 
+        internal static RuleIssue? EvaluatePublishUse(PublishUseFact use, HandlerDeclarationPlan plan)
+        {
+            foreach (var route in plan.ValidRoutes)
+            {
+                if (route.Route.Kind == RouteKind.Message
+                    && string.Equals(route.Route.Message.RouteKey, use.MessageType.RouteKey, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
+
+            foreach (var route in plan.RouteEvaluations)
+            {
+                if (!route.IsValid
+                    && string.Equals(route.Route.Message.RouteKey, use.MessageType.RouteKey, StringComparison.Ordinal))
+                {
+                    return null;
+                }
+            }
+
+            return Issue(
+                AutoMediatorDiagnostics.MissingPublishRouteId,
+                use.StableKey,
+                use.Location,
+                use.MessageType.GlobalName);
+        }
+
         private static List<RuleIssue> EvaluateDeclaration(HandlerDeclarationModel handler)
         {
             var issues = new List<RuleIssue>();
