@@ -40,8 +40,8 @@ For the essentials (stack, commands, rules), see `AGENTS.md`.
 
 * Standalone generator projects emit their build output as an **Analyzer**
   (`<OutputItemType>Analyzer</OutputItemType>`) and are marked **packable** for
-  NuGet distribution. AutoMediator instead packs its nonpackable generator and
-  analyzer through the `CSteroid.AutoMediator` runtime project.
+  NuGet distribution. Medium instead packs its nonpackable generator and
+  analyzer through the `CSteroid.Medium` runtime project.
 * Roslyn packages: `Microsoft.CodeAnalysis.CSharp` 4.10.0,
   `Microsoft.CodeAnalysis.Analyzers` 3.3.4.
 
