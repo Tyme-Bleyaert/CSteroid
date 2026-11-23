@@ -17,6 +17,7 @@ namespace CSteroid.Generator.Medium
         internal const string MissingPublishRouteId = "CSM018";
         internal const string MissingCompositionRootId = "CSM019";
         internal const string UnregisteredBehaviorId = "CSM020";
+        internal const string MissingStreamRouteId = "CSM021";
 
         private const string Category = "CSteroid.Medium";
 
@@ -119,6 +120,15 @@ namespace CSteroid.Generator.Medium
             isEnabledByDefault: true,
             customTags: WellKnownDiagnosticTags.CompilationEnd);
 
+        internal static readonly DiagnosticDescriptor MissingStreamRoute = new DiagnosticDescriptor(
+            id: MissingStreamRouteId,
+            title: "Medium Stream use has no exact route",
+            messageFormat: "Stream command '{0}' has no valid exact Stream route; exactly one handler is required{1}",
+            category: Category,
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true,
+            customTags: WellKnownDiagnosticTags.CompilationEnd);
+
         internal static readonly DiagnosticDescriptor MissingCompositionRoot = new DiagnosticDescriptor(
             id: MissingCompositionRootId,
             title: "Medium composition root is missing",
@@ -163,6 +173,8 @@ namespace CSteroid.Generator.Medium
                     return InvalidManifest;
                 case MissingPublishRouteId:
                     return MissingPublishRoute;
+                case MissingStreamRouteId:
+                    return MissingStreamRoute;
                 case MissingCompositionRootId:
                     return MissingCompositionRoot;
                 case UnregisteredBehaviorId:

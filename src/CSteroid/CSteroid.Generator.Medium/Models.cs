@@ -77,6 +77,7 @@ namespace CSteroid.Generator.Medium
         Message,
         Command,
         CommandWithResponse,
+        Stream,
     }
 
     internal sealed record TypeRef

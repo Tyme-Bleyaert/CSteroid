@@ -14,4 +14,14 @@ namespace CSteroid.Medium
     public interface ICommand<TResponse> : ICommand
     {
     }
+
+    /// <summary>Marker for a command dispatched with Stream; exactly one handler route is required.</summary>
+    public interface IStreamCommand : IMessage
+    {
+    }
+
+    /// <summary>Marker for a command that produces a stream of items.</summary>
+    public interface IStreamCommand<T> : IStreamCommand
+    {
+    }
 }

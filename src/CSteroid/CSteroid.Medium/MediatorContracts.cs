@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,8 +24,16 @@ namespace CSteroid.Medium
             CancellationToken cancellationToken = default);
     }
 
-    /// <summary>Combines command sending and message publication.</summary>
-    public interface IMedium : ISender, IPublisher
+    /// <summary>Sends stream commands to their exactly one registered handler.</summary>
+    public interface IStreamSender
+    {
+        IAsyncEnumerable<T> Stream<T>(
+            IStreamCommand<T> command,
+            CancellationToken cancellationToken = default);
+    }
+
+    /// <summary>Combines command sending, streaming, and message publication.</summary>
+    public interface IMedium : ISender, IStreamSender, IPublisher
     {
     }
 }

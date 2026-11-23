@@ -30,7 +30,10 @@ public class MediumDiEmissionTests
                     var mediator = first.ServiceProvider.GetRequiredService<IMedium>();
                     var sender = first.ServiceProvider.GetRequiredService<ISender>();
                     var publisher = first.ServiceProvider.GetRequiredService<IPublisher>();
-                    var aliases = ReferenceEquals(mediator, sender) && ReferenceEquals(mediator, publisher);
+                    var streamSender = first.ServiceProvider.GetRequiredService<IStreamSender>();
+                    var aliases = ReferenceEquals(mediator, sender)
+                        && ReferenceEquals(mediator, publisher)
+                        && ReferenceEquals(mediator, streamSender);
                     using var second = provider.CreateScope();
                     var scoped = !ReferenceEquals(mediator, second.ServiceProvider.GetRequiredService<IMedium>());
                     return Task.FromResult(aliases && scoped);
@@ -58,6 +61,8 @@ public class MediumDiEmissionTests
                 public ValueTask Send(ICommand command, CancellationToken cancellationToken = default) => default;
                 public ValueTask<T> Send<T>(ICommand<T> command, CancellationToken cancellationToken = default) => new(default(T)!);
                 public ValueTask Publish(IMessage message, CancellationToken cancellationToken = default) => default;
+                public global::System.Collections.Generic.IAsyncEnumerable<T> Stream<T>(IStreamCommand<T> command, CancellationToken cancellationToken = default)
+                    => throw new NotSupportedException();
             }
             public static class Program
             {
@@ -72,6 +77,7 @@ public class MediumDiEmissionTests
                     return Task.FromResult(
                         ReferenceEquals(custom, scope.ServiceProvider.GetRequiredService<IMedium>())
                         && ReferenceEquals(custom, scope.ServiceProvider.GetRequiredService<ISender>())
+                        && ReferenceEquals(custom, scope.ServiceProvider.GetRequiredService<IStreamSender>())
                         && ReferenceEquals(custom, scope.ServiceProvider.GetRequiredService<IPublisher>()));
                 }
             }
@@ -97,6 +103,8 @@ public class MediumDiEmissionTests
                 public ValueTask Send(ICommand command, CancellationToken cancellationToken = default) => default;
                 public ValueTask<T> Send<T>(ICommand<T> command, CancellationToken cancellationToken = default) => new(default(T)!);
                 public ValueTask Publish(IMessage message, CancellationToken cancellationToken = default) => default;
+                public global::System.Collections.Generic.IAsyncEnumerable<T> Stream<T>(IStreamCommand<T> command, CancellationToken cancellationToken = default)
+                    => throw new NotSupportedException();
             }
             public static class Program
             {
@@ -112,6 +120,7 @@ public class MediumDiEmissionTests
                     return Task.FromResult(
                         !ReferenceEquals(custom, mediator)
                         && ReferenceEquals(mediator, scope.ServiceProvider.GetRequiredService<ISender>())
+                        && ReferenceEquals(mediator, scope.ServiceProvider.GetRequiredService<IStreamSender>())
                         && ReferenceEquals(custom, scope.ServiceProvider.GetRequiredService<IPublisher>()));
                 }
             }

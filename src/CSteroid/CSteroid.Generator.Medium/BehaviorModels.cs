@@ -7,6 +7,7 @@ namespace CSteroid.Generator.Medium
     {
         NonResponse,
         Response,
+        Stream,
     }
 
     [Flags]

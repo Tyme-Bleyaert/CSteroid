@@ -150,6 +150,59 @@ public class MediumCodeFixTests
     }
 
     [Fact]
+    public async Task StreamHandlerFix_AddsCompilingAsyncIterator()
+    {
+        using var fixture = new Fixture("""
+            using System.Collections.Generic;
+            using CSteroid.Medium;
+            [assembly: MediumCompositionRoot]
+            public sealed class Query : IStreamCommand<int> { }
+            public static class Use
+            {
+                public static IAsyncEnumerable<int> Call(IStreamSender sender) => sender.Stream(new Query());
+            }
+            """);
+        var diagnostic = Assert.Single((await fixture.AnalyzeAsync()).Diagnostics, item => item.Id == "CSM021");
+        await fixture.ApplyAsync(Assert.Single(await fixture.GetActionsAsync(diagnostic, new MediumHandlerCodeFixProvider())));
+
+        var output = await fixture.GenerateAndAssertCompilesAsync();
+        Assert.DoesNotContain(await MediumExecution.Analyze(output), item => item.Id == "CSM021");
+        var source = await fixture.PersistentTextAsync();
+        Assert.Contains("global::CSteroid.Medium.IStreamCommandHandler<global::Query, int>", source);
+        Assert.Contains("async global::System.Collections.Generic.IAsyncEnumerable<int> Handle(", source);
+        Assert.Contains("yield break;", source);
+    }
+
+    [Fact]
+    public async Task StaleStreamCommandContract_DoesNotOfferHandlerFix()
+    {
+        const string definition = """
+            using CSteroid.Medium;
+            public sealed class Query : IStreamCommand<int> { }
+            """;
+        const string usage = """
+            using System.Collections.Generic;
+            using CSteroid.Medium;
+            [assembly: MediumCompositionRoot]
+            public static class Use
+            {
+                public static IAsyncEnumerable<int> Call(IStreamSender sender) => sender.Stream(new Query());
+            }
+            """;
+        using var fixture = new Fixture(definition, usage);
+        var diagnostic = Assert.Single((await fixture.AnalyzeAsync()).Diagnostics, item => item.Id == "CSM021");
+        Assert.Single(await fixture.GetActionsAsync(diagnostic, new MediumHandlerCodeFixProvider()));
+
+        await fixture.ReplaceDocumentTextAsync("0.cs", definition.Replace(
+            "IStreamCommand<int>",
+            "IStreamCommand<string>",
+            StringComparison.Ordinal));
+
+        Assert.Empty(await fixture.GetActionsAsync(diagnostic, new MediumHandlerCodeFixProvider()));
+        Assert.Equal(2, fixture.Project.Documents.Count());
+    }
+
+    [Fact]
     public async Task StaleResponseCommandContract_DoesNotOfferHandlerFix()
     {
         const string definition = """
@@ -282,6 +335,53 @@ public class MediumCodeFixTests
             await fixture.PersistentTextAsync());
         Assert.Contains(
             "TryAddScoped<global::LoggingBehavior<global::Command, int>>(services)",
+            string.Join("\n", MediumExecution.GeneratedSources(output)));
+    }
+
+    [Fact]
+    public async Task OpenStreamBehaviorFix_AddsDeclarationAndClosedRegistration()
+    {
+        using var fixture = new Fixture("""
+            using System.Collections.Generic;
+            using System.Runtime.CompilerServices;
+            using System.Threading;
+            using System.Threading.Tasks;
+            using CSteroid.Medium;
+            [assembly: MediumCompositionRoot]
+            public sealed class Query : IStreamCommand<int> { }
+            public sealed class LoggingBehavior<TMessage, T> : IStreamPipelineBehavior<TMessage, T>
+                where TMessage : IStreamCommand<T>
+            {
+                public async IAsyncEnumerable<T> Handle(
+                    TMessage message,
+                    MediumStreamNext<TMessage, T> next,
+                    [EnumeratorCancellation] CancellationToken cancellationToken)
+                {
+                    await foreach (var item in next(message, cancellationToken).WithCancellation(cancellationToken))
+                        yield return item;
+                }
+            }
+            public sealed class Handler : IStreamCommandHandler<Query, int>
+            {
+                public async IAsyncEnumerable<int> Handle(Query command, CancellationToken cancellationToken)
+                {
+                    await Task.CompletedTask;
+                    yield return 0;
+                }
+            }
+            """);
+        var diagnostic = Assert.Single((await fixture.AnalyzeAsync()).Diagnostics, item => item.Id == "CSM020");
+        await fixture.ApplyAsync(Assert.Single(await fixture.GetActionsAsync(
+            diagnostic,
+            new MediumAssemblyAttributeCodeFixProvider())));
+
+        var output = await fixture.GenerateAndAssertCompilesAsync();
+        Assert.DoesNotContain(await MediumExecution.Analyze(output), item => item.Id == "CSM020");
+        Assert.Contains(
+            "[assembly: global::CSteroid.Medium.MediumBehavior(typeof(global::LoggingBehavior<,>))]",
+            await fixture.PersistentTextAsync());
+        Assert.Contains(
+            "TryAddScoped<global::LoggingBehavior<global::Query, int>>(services)",
             string.Join("\n", MediumExecution.GeneratedSources(output)));
     }
 

@@ -21,7 +21,8 @@ namespace CSteroid.Generator.Medium.CodeFixes
     {
         public override ImmutableArray<string> FixableDiagnosticIds => ImmutableArray.Create(
             MediumDiagnostics.MissingSendRouteId,
-            MediumDiagnostics.MissingPublishRouteId);
+            MediumDiagnostics.MissingPublishRouteId,
+            MediumDiagnostics.MissingStreamRouteId);
 
         public override FixAllProvider? GetFixAllProvider() => null;
 
@@ -124,6 +125,13 @@ namespace CSteroid.Generator.Medium.CodeFixes
                         .Append(request.ResponseGlobalName)
                         .AppendLine(">");
                     break;
+                case RouteKind.Stream:
+                    source.Append("global::CSteroid.Medium.IStreamCommandHandler<")
+                        .Append(request.MessageGlobalName)
+                        .Append(", ")
+                        .Append(request.ResponseGlobalName)
+                        .AppendLine(">");
+                    break;
                 default:
                     source.Append("global::CSteroid.Medium.IMessageHandler<").Append(request.MessageGlobalName).AppendLine(">");
                     break;
@@ -136,13 +144,21 @@ namespace CSteroid.Generator.Medium.CodeFixes
                     .Append(request.ResponseGlobalName)
                     .Append("> Handle(");
             }
+            else if (request.Kind == RouteKind.Stream)
+            {
+                source.Append("async global::System.Collections.Generic.IAsyncEnumerable<")
+                    .Append(request.ResponseGlobalName)
+                    .Append("> Handle(");
+            }
             else
             {
                 source.Append("global::System.Threading.Tasks.ValueTask Handle(");
             }
             source.Append(request.MessageGlobalName)
-                .Append(request.Kind == RouteKind.Message ? " message, " : " command, ")
-                .AppendLine("global::System.Threading.CancellationToken cancellationToken)");
+                .Append(request.Kind == RouteKind.Message ? " message, " : " command, ");
+            if (request.Kind == RouteKind.Stream)
+                source.Append("[global::System.Runtime.CompilerServices.EnumeratorCancellation] ");
+            source.AppendLine("global::System.Threading.CancellationToken cancellationToken)");
             source.Append(indent).AppendLine("    {");
             if (request.Kind == RouteKind.CommandWithResponse)
             {
@@ -152,6 +168,11 @@ namespace CSteroid.Generator.Medium.CodeFixes
                     .Append(">(default(")
                     .Append(request.ResponseGlobalName)
                     .AppendLine(")!);");
+            }
+            else if (request.Kind == RouteKind.Stream)
+            {
+                source.Append(indent).AppendLine("        await global::System.Threading.Tasks.Task.CompletedTask.ConfigureAwait(false);");
+                source.Append(indent).AppendLine("        yield break;");
             }
             else
             {
@@ -173,12 +194,13 @@ namespace CSteroid.Generator.Medium.CodeFixes
                 || !TryGetProperty(diagnostic, MediumDiagnosticProperties.RouteKind, out var kindText)
                 || !int.TryParse(kindText, NumberStyles.None, CultureInfo.InvariantCulture, out var kind)
                 || kind < (int)RouteKind.Message
-                || kind > (int)RouteKind.CommandWithResponse
+                || kind > (int)RouteKind.Stream
                 || !TryGetProperty(diagnostic, MediumDiagnosticProperties.MessageGlobalName, out var messageGlobalName)
                 || !TryGetProperty(diagnostic, MediumDiagnosticProperties.MessageMetadataIdentity, out var metadataIdentity)
                 || !TryGetProperty(diagnostic, MediumDiagnosticProperties.MessageAssemblyName, out var assemblyName)
                 || !TryGetProperty(diagnostic, MediumDiagnosticProperties.ResponseGlobalName, out var responseGlobalName)
-                || (RouteKind)kind == RouteKind.CommandWithResponse && responseGlobalName.Length == 0)
+                || ((RouteKind)kind == RouteKind.CommandWithResponse || (RouteKind)kind == RouteKind.Stream)
+                    && responseGlobalName.Length == 0)
             {
                 return false;
             }
@@ -208,10 +230,12 @@ namespace CSteroid.Generator.Medium.CodeFixes
             {
                 return false;
             }
-            if (request.Kind != RouteKind.CommandWithResponse)
+            if (request.Kind != RouteKind.CommandWithResponse && request.Kind != RouteKind.Stream)
                 return true;
 
-            var commandContract = compilation.GetTypeByMetadataName(MediumRuntimeContracts.CommandOfTMetadataName);
+            var commandContract = compilation.GetTypeByMetadataName(request.Kind == RouteKind.Stream
+                ? MediumRuntimeContracts.StreamCommandOfTMetadataName
+                : MediumRuntimeContracts.CommandOfTMetadataName);
             return commandContract is not null
                 && message.AllInterfaces.Any(contract =>
                     SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, commandContract)
@@ -230,6 +254,7 @@ namespace CSteroid.Generator.Medium.CodeFixes
             {
                 RouteKind.Command => MediumRuntimeContracts.CommandHandlerMetadataName,
                 RouteKind.CommandWithResponse => MediumRuntimeContracts.CommandHandlerOfTMetadataName,
+                RouteKind.Stream => MediumRuntimeContracts.StreamCommandHandlerMetadataName,
                 _ => MediumRuntimeContracts.MessageHandlerMetadataName,
             });
             if (handlerContract is null)
@@ -246,6 +271,7 @@ namespace CSteroid.Generator.Medium.CodeFixes
                         continue;
                     }
                     if (request.Kind != RouteKind.CommandWithResponse
+                        && request.Kind != RouteKind.Stream
                         || contract.TypeArguments.Length == 2
                             && string.Equals(
                                 contract.TypeArguments[1].ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),

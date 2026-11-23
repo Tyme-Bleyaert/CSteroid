@@ -252,17 +252,21 @@ programs enable `ValidateScopes` and share scoped state within one scope.
 | `IRequest<TResponse>` | `ICommand<TResponse>` | Rename the interface; response commands are invariant. |
 | Non-response `IRequest` or `IRequest<Unit>` | `ICommand` | Rename the interface and remove the response argument. |
 | `INotification` | `IMessage` | Rename the interface. |
+| `IStreamRequest<T>` | `IStreamCommand<T>` | Rename the interface and keep the item type as `T`. |
 | `IRequestHandler<TRequest,TResponse>` | `ICommandHandler<TCommand,TResponse>` | Rename and return `ValueTask<TResponse>`. |
 | `IRequestHandler<TRequest>` or `IRequestHandler<TRequest,Unit>` | `ICommandHandler<TCommand>` | Rename, return non-generic `ValueTask`, and remove `Unit`. |
 | `INotificationHandler<T>` | `IMessageHandler<T>` | Rename and return non-generic `ValueTask`. |
+| `IStreamRequestHandler<TRequest,T>` | `IStreamCommandHandler<TCommand,T>` | Rename the interface and keep the `IAsyncEnumerable<T>` return type. |
 | `Task` / `Task<T>` handler methods | `ValueTask` / `ValueTask<T>` | Return `default`/`new ValueTask<T>(result)` for synchronous completion or use `async ValueTask`. |
 | `Unit.Value` | No value | Return `default` from a synchronous non-response handler; remove caller-side `Unit` handling. |
 | `IPipelineBehavior<TRequest,TResponse>` | `IPipelineBehavior<TMessage,TResponse>` | Change the namespace, return `ValueTask<TResponse>`, and use the Medium continuation. |
 | `RequestHandlerDelegate<TResponse>` and `next()` | `MediumNext<TMessage,TResponse>` and `next(message, ct)` | Forward or deliberately replace both message and token. Non-response pipelines use `MediumNext<TMessage>`. |
+| `IStreamPipelineBehavior<TRequest,T>` | `IStreamPipelineBehavior<TMessage,T>` | Change the namespace and use `MediumStreamNext<TMessage,T>`. Forward the message and token to `next(message, ct)`. |
+| `CreateStream(...)` | `Stream(...)` | Rename the call. Inject `IStreamSender` when the consumer only creates streams. |
 | Open-generic `IPipelineBehavior<,>` service registration | `[assembly: MediumBehavior(typeof(MyBehavior<,>))]` | Move selection/registration to an assembly declaration; the generator emits closed registrations. Closed behaviors use `typeof(MyBehavior)`, as in the sample. |
 | `AddMediatR(...RegisterServicesFromAssembly...)` | `[assembly: MediumCompositionRoot]` plus `services.AddMedium()` | Replace runtime scanning with generated handler and behavior registration in the root assembly. |
 | `IMediator` | `IMedium` | Rename the injected contract and field. |
-| `ISender` / `IPublisher` | `ISender` / `IPublisher` | Change the namespace/package; call shape stays familiar. |
+| `ISender` / `IPublisher` | `ISender` / `IPublisher` | Change the namespace/package; call shape stays familiar. Medium also has `IStreamSender` for stream-only consumers. |
 | Mocked `IMediator`, `ISender`, or `IPublisher` | Mocked `IMedium`, `ISender`, or `IPublisher` | Rename the mocked contract and configure `ValueTask` results; no real container is required. |
 | Directly constructed handler tests | Directly constructed handler tests | Keep the test structure; update only constructor arguments and handler signatures as needed. |
 
@@ -284,8 +288,9 @@ await publisher.Publish(new DerivedOrderCreated(Guid.NewGuid()), CancellationTok
 No base-message handler or behavior runs. A concrete Publish use with no valid
 handler produces CSM018. An unknown route reached through an interface-held or
 otherwise unprovable message throws `InvalidOperationException`. A command sent
-through `Send` still requires exactly one handler for its exact concrete command
-type; do not expect a base command handler to absorb derived commands.
+through `Send` or `Stream` still requires exactly one handler for its exact concrete command
+type; do not expect a base command handler to absorb derived commands. A concrete
+Stream use without a valid handler produces CSM021.
 
 `ICommand<TResponse>` is deliberately invariant. For example, an
 `ICommand<DerivedResponse>` is not an `ICommand<BaseResponse>`. Contravariance on
@@ -341,9 +346,6 @@ subscriber separately.
 
 ## Features that do not migrate transparently
 
-- **Streaming:** `IStreamRequest<T>`, streaming handlers, and
-  `IAsyncEnumerable<T>` pipelines are outside v1. Keep that slice on MediatR or
-  design a separate streaming API; replacing it with `Publish` changes semantics.
 - **Pre/post processors and exception plugins:** MediatR pre-processors,
   post-processors, exception handlers, and exception actions have no automatic
   equivalent. Put required logic in explicit pipeline behaviors or application

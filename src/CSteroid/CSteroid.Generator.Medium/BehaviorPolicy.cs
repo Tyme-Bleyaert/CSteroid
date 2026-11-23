@@ -64,7 +64,8 @@ namespace CSteroid.Generator.Medium
             foreach (var declaration in plan.ValidDeclarations)
             {
                 var arity = declaration.TypeParameterNames.Count;
-                if (handlerRoute.Kind == RouteKind.CommandWithResponse)
+                if (handlerRoute.Kind == RouteKind.CommandWithResponse
+                    || handlerRoute.Kind == RouteKind.Stream)
                 {
                     if (declaration.IsOpenGenericDefinition && arity != 2)
                         continue;
@@ -184,6 +185,7 @@ namespace CSteroid.Generator.Medium
                 else if (arity == 2)
                 {
                     if (contract.Kind != BehaviorContractKind.Response
+                        && contract.Kind != BehaviorContractKind.Stream
                         || !contract.MessageType.IsTypeParameter(declaration.TypeParameterNames[0])
                         || contract.ResponseType is null
                         || !contract.ResponseType.IsTypeParameter(declaration.TypeParameterNames[1]))
@@ -205,7 +207,7 @@ namespace CSteroid.Generator.Medium
         {
             if (!openGeneric)
                 return new EquatableArray<TypeRef>(ImmutableArray<TypeRef>.Empty);
-            if (route.Kind == RouteKind.CommandWithResponse)
+            if (route.Kind == RouteKind.CommandWithResponse || route.Kind == RouteKind.Stream)
                 return new EquatableArray<TypeRef>(ImmutableArray.Create(route.Message, route.Response!));
             return new EquatableArray<TypeRef>(ImmutableArray.Create(route.Message));
         }
@@ -272,7 +274,9 @@ namespace CSteroid.Generator.Medium
         {
             var expectedKind = route.Kind == RouteKind.CommandWithResponse
                 ? BehaviorContractKind.Response
-                : BehaviorContractKind.NonResponse;
+                : route.Kind == RouteKind.Stream
+                    ? BehaviorContractKind.Stream
+                    : BehaviorContractKind.NonResponse;
             foreach (var contract in declaration.Contracts)
             {
                 if (contract.Kind != expectedKind

@@ -39,10 +39,33 @@ public class RuntimeContractTests
     }
 
     [Fact]
-    public void IMedium_CombinesSenderAndPublisher()
+    public void IMedium_CombinesSenderStreamSenderAndPublisher()
     {
         Assert.True(typeof(ISender).IsAssignableFrom(typeof(IMedium)));
+        Assert.True(typeof(IStreamSender).IsAssignableFrom(typeof(IMedium)));
         Assert.True(typeof(IPublisher).IsAssignableFrom(typeof(IMedium)));
+    }
+
+    [Fact]
+    public void StreamContracts_UseAsyncEnumerableAndPreserveMessageVariance()
+    {
+        Assert.True(typeof(IStreamCommand).IsAssignableFrom(typeof(IStreamCommand<int>)));
+        Assert.True(typeof(IMessage).IsAssignableFrom(typeof(IStreamCommand)));
+        AssertContravariant(typeof(IStreamCommandHandler<,>));
+        AssertInvariant(typeof(IStreamPipelineBehavior<,>), 0);
+        AssertInvariant(typeof(IStreamPipelineBehavior<,>), 1);
+        AssertContravariant(typeof(MediumStreamNext<,>));
+
+        var stream = Assert.Single(typeof(IStreamSender).GetMethods());
+        Assert.Equal(typeof(IAsyncEnumerable<>), stream.ReturnType.GetGenericTypeDefinition());
+        Assert.Equal(typeof(IStreamCommand<>), stream.GetParameters()[0].ParameterType.GetGenericTypeDefinition());
+        Assert.True(stream.GetParameters()[1].HasDefaultValue);
+
+        var handle = typeof(IStreamCommandHandler<,>).GetMethod("Handle")!;
+        Assert.Equal(typeof(IAsyncEnumerable<>), handle.ReturnType.GetGenericTypeDefinition());
+        var next = typeof(MediumStreamNext<,>).GetMethod("Invoke")!;
+        Assert.Equal(typeof(IAsyncEnumerable<>), next.ReturnType.GetGenericTypeDefinition());
+        Assert.Equal(typeof(CancellationToken), next.GetParameters()[1].ParameterType);
     }
 
     [Fact]
@@ -106,6 +129,7 @@ public class RuntimeContractTests
     {
         AssertContravariant(typeof(ICommandHandler<>));
         AssertContravariant(typeof(ICommandHandler<,>));
+        AssertContravariant(typeof(IStreamCommandHandler<,>));
         AssertContravariant(typeof(IMessageHandler<>));
         Assert.Equal(
             GenericParameterAttributes.None,
@@ -145,6 +169,8 @@ public class RuntimeContractTests
         AssertInvariant(typeof(IPipelineBehavior<>), 0);
         AssertInvariant(typeof(IPipelineBehavior<,>), 0);
         AssertInvariant(typeof(IPipelineBehavior<,>), 1);
+        AssertInvariant(typeof(IStreamPipelineBehavior<,>), 0);
+        AssertInvariant(typeof(IStreamPipelineBehavior<,>), 1);
 
         AssertContravariant(typeof(MediumNext<>));
         AssertContravariant(typeof(MediumNext<,>));

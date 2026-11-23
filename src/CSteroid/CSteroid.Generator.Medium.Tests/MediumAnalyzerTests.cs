@@ -10,7 +10,7 @@ public class MediumAnalyzerTests
     {
         var analyzer = new global::CSteroid.Generator.Medium.MediumDiagnosticAnalyzer();
         Assert.Equal(
-            new[] { "CSM001", "CSM002", "CSM006", "CSM011", "CSM012", "CSM013", "CSM014", "CSM015", "CSM016", "CSM017", "CSM018", "CSM019", "CSM020" },
+            new[] { "CSM001", "CSM002", "CSM006", "CSM011", "CSM012", "CSM013", "CSM014", "CSM015", "CSM016", "CSM017", "CSM018", "CSM019", "CSM020", "CSM021" },
             analyzer.SupportedDiagnostics.Select(descriptor => descriptor.Id));
         Assert.All(
             analyzer.SupportedDiagnostics.Where(descriptor => descriptor.Id != "CSM020"),

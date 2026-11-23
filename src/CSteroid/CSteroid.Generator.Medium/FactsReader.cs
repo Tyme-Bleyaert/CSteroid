@@ -41,6 +41,12 @@ namespace CSteroid.Generator.Medium
                     response = CreateTypeRef(contract.TypeArguments[1]);
                     responseIsAccessible = IsAccessibleType(contract.TypeArguments[1], compilation.Assembly);
                 }
+                else if (SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, contracts.StreamCommandHandler))
+                {
+                    kind = RouteKind.Stream;
+                    response = CreateTypeRef(contract.TypeArguments[1]);
+                    responseIsAccessible = IsAccessibleType(contract.TypeArguments[1], compilation.Assembly);
+                }
                 else if (SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, contracts.MessageHandler))
                 {
                     kind = RouteKind.Message;

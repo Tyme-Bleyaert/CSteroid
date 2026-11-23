@@ -20,7 +20,7 @@ Add the `CSteroid.Generator` package to the target project, reference `CSteroid.
 - **ORM optimisations** – conventions and attributes for EF Core, Dapper, Cosmos DB, MongoDB, and PostgreSQL, each shipped as its own generator package. Reference `CSteroid.Orm` and apply `[OrmTarget(OrmTarget.EFCore)]` alongside `[CanonicalModel(...)]` to route the model to the matching package. A model may carry only one `OrmTarget` flag (`CSG101` otherwise).
 - **Validation** – DataAnnotations forwarding, custom fluent validation, async validation, conditional rules, cross-property rules, and nested object & collection validation.
 - **Configuration** – custom namespaces, folder paths, file naming (`*.model.cs`), and logical separation of validators/mappings into different namespaces.
-- **Medium.** Generate mediator dispatch and handler registration for commands, published messages, and pipeline behaviors.
+- **Medium.** Generate mediator dispatch and handler registration for commands, streams, published messages, and pipeline behaviors.
 
 ## Example
 
@@ -168,7 +168,7 @@ referencing project generates every model and builds collide. See
 
 ## Medium
 
-Medium routes commands and messages to handlers. You write the messages and handlers. The source generator creates the dispatch and dependency-injection registration code when you build.
+Medium routes commands, streams, and messages to handlers. You write the messages and handlers. The source generator creates the dispatch and dependency-injection registration code when you build.
 
 ### Use Medium in a console application
 
@@ -212,6 +212,7 @@ Medium routes commands and messages to handlers. You write the messages and hand
    - `ICommand<TResponse>` is a command that returns a response.
    - `ICommand` is a command that returns no response.
    - `IMessage` is a message that you can publish to multiple handlers.
+   - `IStreamCommand<T>` is a command that returns items one at a time through `IAsyncEnumerable<T>`.
 
 4. **Add a handler for each message.**
 
@@ -276,9 +277,94 @@ Medium routes commands and messages to handlers. You write the messages and hand
    Console.WriteLine($"Created order {receipt.OrderId} for {receipt.Sku}");
    ```
 
-   `Send` calls exactly one handler for the command. `Publish` calls every handler for the message in order. Inject `ISender` into a class that only sends commands, or `IPublisher` into a class that only publishes messages. `IMedium` supports both operations.
+   `Send` calls exactly one handler for the command. `Publish` calls every handler for the message in order. Inject `ISender` into a class that only sends commands, or `IPublisher` into a class that only publishes messages. `IMedium` supports sending, streaming, and publishing.
 
-   In ASP.NET Core, call `builder.Services.AddMedium()` instead of creating a `ServiceCollection`. You can then inject `IMedium`, `ISender`, or `IPublisher` into your services and endpoints.
+   In ASP.NET Core, call `builder.Services.AddMedium()` instead of creating a `ServiceCollection`. You can then inject `IMedium`, `ISender`, `IStreamSender`, or `IPublisher` into your services and endpoints.
+
+### Choose a handler lifetime
+
+Handlers are scoped by default. The container creates one handler instance for each scope. Add `HandlerLifetime` to the handler class when you need a different lifetime.
+
+```csharp
+using CSteroid.Medium;
+using Microsoft.Extensions.DependencyInjection;
+
+[HandlerLifetime(ServiceLifetime.Singleton)]
+public sealed class CreateOrderHandler : ICommandHandler<CreateOrder, OrderReceipt>
+{
+    // Handle method omitted.
+}
+```
+
+- `ServiceLifetime.Scoped` creates one instance per scope. This is the default.
+- `ServiceLifetime.Singleton` creates one instance for the root provider. Do not inject scoped services into a singleton handler.
+- `ServiceLifetime.Transient` creates a new instance every time Medium resolves the handler.
+
+The same choices apply to a stream handler. Set a behavior's lifetime in its assembly declaration.
+
+```csharp
+[assembly: MediumBehavior(
+    typeof(CreateOrderBehavior),
+    Order = 100,
+    Lifetime = ServiceLifetime.Transient)]
+```
+
+### Stream items
+
+Use `IStreamCommand<T>` when a command returns zero or more items instead of one response. `T` is the item type, not the stream type.
+
+```csharp
+using System.Runtime.CompilerServices;
+using CSteroid.Medium;
+
+public sealed record OrderLines(Guid OrderId) : IStreamCommand<OrderLine>;
+
+public sealed record OrderLine(string Sku, int Quantity);
+
+public sealed class OrderLinesHandler : IStreamCommandHandler<OrderLines, OrderLine>
+{
+    public async IAsyncEnumerable<OrderLine> Handle(
+        OrderLines command,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        yield return new OrderLine("SKU-123", 1);
+
+        await Task.Delay(10, cancellationToken);
+        yield return new OrderLine("SKU-456", 2);
+    }
+}
+```
+
+Call `Stream` and read it with `await foreach`.
+
+```csharp
+await foreach (var line in medium.Stream(
+    new OrderLines(receipt.OrderId),
+    cancellationToken))
+{
+    Console.WriteLine($"{line.Sku}: {line.Quantity}");
+}
+```
+
+`Stream` uses exactly one handler. The handler returns an `IAsyncEnumerable<T>`, so its iterator body produces items as you enumerate them. The `EnumeratorCancellation` attribute lets the compiler connect the token passed by `await foreach` to your iterator. Inject `IStreamSender` when a class only needs streaming.
+
+A stream behavior wraps the handler in the same way as a command behavior.
+
+```csharp
+public sealed class OrderLinesBehavior : IStreamPipelineBehavior<OrderLines, OrderLine>
+{
+    public async IAsyncEnumerable<OrderLine> Handle(
+        OrderLines message,
+        MediumStreamNext<OrderLines, OrderLine> next,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        await foreach (var line in next(message, cancellationToken).WithCancellation(cancellationToken))
+            yield return line;
+    }
+}
+```
+
+Register it with `[assembly: MediumBehavior(typeof(OrderLinesBehavior))]`.
 
 ### Add a pipeline behavior
 

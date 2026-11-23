@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -17,6 +18,13 @@ namespace CSteroid.Medium
         ValueTask<TResponse> Handle(
             TCommand command,
             CancellationToken cancellationToken);
+    }
+
+    /// <summary>Handles a command and produces its declared stream of items.</summary>
+    public interface IStreamCommandHandler<in TCommand, T>
+        where TCommand : IStreamCommand<T>
+    {
+        IAsyncEnumerable<T> Handle(TCommand command, CancellationToken cancellationToken);
     }
 
     /// <summary>Handles a published message.</summary>

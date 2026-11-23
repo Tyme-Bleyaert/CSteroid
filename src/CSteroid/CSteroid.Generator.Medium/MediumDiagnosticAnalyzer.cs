@@ -27,7 +27,8 @@ namespace CSteroid.Generator.Medium
             MediumDiagnostics.InvalidManifest,
             MediumDiagnostics.MissingPublishRoute,
             MediumDiagnostics.MissingCompositionRoot,
-            MediumDiagnostics.UnregisteredBehavior);
+            MediumDiagnostics.UnregisteredBehavior,
+            MediumDiagnostics.MissingStreamRoute);
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => Rules;
 

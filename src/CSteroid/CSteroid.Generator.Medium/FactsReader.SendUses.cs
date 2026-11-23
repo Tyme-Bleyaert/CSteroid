@@ -19,18 +19,24 @@ namespace CSteroid.Generator.Medium
                 return null;
             }
 
+            var isStream = string.Equals(method.Name, "Stream", StringComparison.Ordinal);
             var argument = invocation.ArgumentList.Arguments[0].Expression;
-            var commandType = ReadConcreteMessageType(argument, semanticModel, contracts.Command);
+            var commandType = ReadConcreteMessageType(
+                argument,
+                semanticModel,
+                isStream ? contracts.StreamCommand : contracts.Command);
             if (commandType is null)
                 return null;
 
-            var kind = method.IsGenericMethod
-                || method.Parameters[0].Type is INamedTypeSymbol named
-                    && SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, contracts.CommandOfT)
-                ? RouteKind.CommandWithResponse
-                : RouteKind.Command;
+            var kind = isStream
+                ? RouteKind.Stream
+                : method.IsGenericMethod
+                    || method.Parameters[0].Type is INamedTypeSymbol named
+                        && SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, contracts.CommandOfT)
+                    ? RouteKind.CommandWithResponse
+                    : RouteKind.Command;
             ITypeSymbol? responseType = null;
-            if (kind == RouteKind.CommandWithResponse)
+            if (kind == RouteKind.CommandWithResponse || kind == RouteKind.Stream)
             {
                 responseType = method.IsGenericMethod && method.TypeArguments.Length == 1
                     ? method.TypeArguments[0]
@@ -105,19 +111,30 @@ namespace CSteroid.Generator.Medium
             IMethodSymbol method,
             MediumRuntimeContracts contracts)
         {
-            if (!string.Equals(method.Name, "Send", StringComparison.Ordinal)
+            var isSend = string.Equals(method.Name, "Send", StringComparison.Ordinal);
+            var isStream = string.Equals(method.Name, "Stream", StringComparison.Ordinal);
+            if (!isSend && !isStream
                 || method.Parameters.Length < 1
                 || method.Parameters.Length > 2
-                || method.ContainingType.TypeKind != TypeKind.Interface
-                || !ImplementsContract(method.ContainingType, contracts.Sender))
+                || method.ContainingType.TypeKind != TypeKind.Interface)
             {
                 return false;
             }
 
             var firstType = method.Parameters[0].Type;
-            return SymbolEqualityComparer.Default.Equals(firstType, contracts.Command)
-                || firstType is INamedTypeSymbol named
-                    && SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, contracts.CommandOfT);
+            if (isStream)
+            {
+                return ImplementsContract(method.ContainingType, contracts.StreamSender)
+                    && firstType is INamedTypeSymbol streamCommand
+                    && SymbolEqualityComparer.Default.Equals(
+                        streamCommand.OriginalDefinition,
+                        contracts.StreamCommandOfT);
+            }
+
+            return ImplementsContract(method.ContainingType, contracts.Sender)
+                && (SymbolEqualityComparer.Default.Equals(firstType, contracts.Command)
+                    || firstType is INamedTypeSymbol named
+                        && SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, contracts.CommandOfT));
         }
 
         private static bool IsMediatorPublishMethod(

@@ -24,6 +24,7 @@ namespace CSteroid.Generator.Medium
 
             var responseRoutes = new List<RoutePlan>();
             var commandRoutes = new List<RoutePlan>();
+            var streamRoutes = new List<RoutePlan>();
             var eventRoutes = new List<List<RoutePlan>>();
 
             foreach (var route in plan.Routes)
@@ -35,6 +36,9 @@ namespace CSteroid.Generator.Medium
                         break;
                     case RouteKind.Command:
                         commandRoutes.Add(route);
+                        break;
+                    case RouteKind.Stream:
+                        streamRoutes.Add(route);
                         break;
                     case RouteKind.Message:
                         if (eventRoutes.Count == 0
@@ -71,6 +75,11 @@ namespace CSteroid.Generator.Medium
                 writer.AppendLine();
                 EmitCommandTable(writer, commandRoutes);
             }
+            if (streamRoutes.Count != 0)
+            {
+                writer.AppendLine();
+                EmitStreamTable(writer, streamRoutes);
+            }
             if (eventRoutes.Count != 0)
             {
                 writer.AppendLine();
@@ -82,6 +91,8 @@ namespace CSteroid.Generator.Medium
             writer.AppendLine();
             EmitCommandSend(writer, commandRoutes.Count != 0);
             writer.AppendLine();
+            EmitStream(writer, streamRoutes.Count != 0);
+            writer.AppendLine();
             EmitPublish(writer, eventRoutes.Count != 0);
 
             foreach (var route in responseRoutes)
@@ -90,6 +101,11 @@ namespace CSteroid.Generator.Medium
                 EmitCommandRoute(writer, route);
             }
             foreach (var route in commandRoutes)
+            {
+                writer.AppendLine();
+                EmitCommandRoute(writer, route);
+            }
+            foreach (var route in streamRoutes)
             {
                 writer.AppendLine();
                 EmitCommandRoute(writer, route);
@@ -132,6 +148,18 @@ namespace CSteroid.Generator.Medium
             foreach (var route in routes)
             {
                 writer.AppendLine("{ typeof(" + route.Message.GlobalName + "), new __MED_CommandDispatch(__MED_Dispatch_" + route.MemberId + ") },");
+            }
+            writer.CloseBlock(";");
+        }
+
+        private static void EmitStreamTable(CodeWriter writer, List<RoutePlan> routes)
+        {
+            writer.AppendLine("private delegate global::System.Collections.Generic.IAsyncEnumerable<T> __MED_StreamDispatch<T>(GeneratedMedium medium, global::CSteroid.Medium.IStreamCommand<T> command, global::System.Threading.CancellationToken cancellationToken);");
+            writer.AppendLine();
+            writer.OpenBlock("private static readonly global::System.Collections.Generic.Dictionary<global::System.Type, global::System.Delegate> __med_streamRoutes = new global::System.Collections.Generic.Dictionary<global::System.Type, global::System.Delegate>");
+            foreach (var route in routes)
+            {
+                writer.AppendLine("{ typeof(" + route.Message.GlobalName + "), new __MED_StreamDispatch<" + ResponseType(route) + ">(__MED_Dispatch_" + route.MemberId + ") },");
             }
             writer.CloseBlock(";");
         }
@@ -187,6 +215,24 @@ namespace CSteroid.Generator.Medium
             writer.CloseBlock();
         }
 
+        private static void EmitStream(CodeWriter writer, bool hasRoutes)
+        {
+            writer.OpenBlock("public global::System.Collections.Generic.IAsyncEnumerable<T> Stream<T>(global::CSteroid.Medium.IStreamCommand<T> command, global::System.Threading.CancellationToken cancellationToken = default)");
+            writer.OpenBlock("if (command is null)");
+            writer.AppendLine("throw new global::System.ArgumentNullException(nameof(command));");
+            writer.CloseBlock();
+            writer.AppendLine();
+            if (hasRoutes)
+            {
+                writer.OpenBlock("if (__med_streamRoutes.TryGetValue(command.GetType(), out var route))");
+                writer.AppendLine("return ((__MED_StreamDispatch<T>)route)(this, command, cancellationToken);");
+                writer.CloseBlock();
+                writer.AppendLine();
+            }
+            writer.AppendLine("throw new global::System.InvalidOperationException(\"No exact Medium stream-command route for \" + command.GetType().FullName + \".\");");
+            writer.CloseBlock();
+        }
+
         private static void EmitPublish(CodeWriter writer, bool hasRoutes)
         {
             writer.OpenBlock("public global::System.Threading.Tasks.ValueTask Publish(global::CSteroid.Medium.IMessage message, global::System.Threading.CancellationToken cancellationToken = default)");
@@ -196,6 +242,10 @@ namespace CSteroid.Generator.Medium
             writer.AppendLine();
             writer.OpenBlock("if (message is global::CSteroid.Medium.ICommand)");
             writer.AppendLine("throw new global::System.ArgumentException(\"Medium Publish does not accept commands; use Send instead.\", nameof(message));");
+            writer.CloseBlock();
+            writer.AppendLine();
+            writer.OpenBlock("if (message is global::CSteroid.Medium.IStreamCommand)");
+            writer.AppendLine("throw new global::System.ArgumentException(\"Medium Publish does not accept stream commands; use Stream instead.\", nameof(message));");
             writer.CloseBlock();
             writer.AppendLine();
             if (hasRoutes)
@@ -214,10 +264,12 @@ namespace CSteroid.Generator.Medium
             var returnType = ReturnType(route);
             var commandInterface = route.Kind == RouteKind.CommandWithResponse
                 ? "global::CSteroid.Medium.ICommand<" + ResponseType(route) + ">"
-                : "global::CSteroid.Medium.ICommand";
-            var pipelineName = "__MED_Send_" + route.MemberId;
+                : route.Kind == RouteKind.Stream
+                    ? "global::CSteroid.Medium.IStreamCommand<" + ResponseType(route) + ">"
+                    : "global::CSteroid.Medium.ICommand";
+            var pipelineName = (route.Kind == RouteKind.Stream ? "__MED_Stream_" : "__MED_Send_") + route.MemberId;
             var terminalName = pipelineName + "Terminal";
-            var continuationName = "__med_send_" + route.MemberId + "Terminal";
+            var continuationName = (route.Kind == RouteKind.Stream ? "__med_stream_" : "__med_send_") + route.MemberId + "Terminal";
 
             writer.AppendLine("private static " + returnType + " __MED_Dispatch_" + route.MemberId + "(GeneratedMedium medium, " + commandInterface + " command, global::System.Threading.CancellationToken cancellationToken)");
             writer.AppendLine("    => medium." + pipelineName + "((" + route.Message.GlobalName + ")command, cancellationToken);");
@@ -329,6 +381,10 @@ namespace CSteroid.Generator.Medium
             {
                 handlerInterface = "global::CSteroid.Medium.ICommandHandler<" + route.Message.GlobalName + ">";
             }
+            else if (route.Kind == RouteKind.Stream)
+            {
+                handlerInterface = "global::CSteroid.Medium.IStreamCommandHandler<" + route.Message.GlobalName + ", " + ResponseType(route) + ">";
+            }
             else
             {
                 handlerInterface = "global::CSteroid.Medium.IMessageHandler<" + route.Message.GlobalName + ">";
@@ -352,16 +408,22 @@ namespace CSteroid.Generator.Medium
         private static string ReturnType(RoutePlan route) =>
             route.Kind == RouteKind.CommandWithResponse
                 ? "global::System.Threading.Tasks.ValueTask<" + ResponseType(route) + ">"
-                : "global::System.Threading.Tasks.ValueTask";
+                : route.Kind == RouteKind.Stream
+                    ? "global::System.Collections.Generic.IAsyncEnumerable<" + ResponseType(route) + ">"
+                    : "global::System.Threading.Tasks.ValueTask";
 
         private static string NextType(RoutePlan route) =>
             route.Kind == RouteKind.CommandWithResponse
                 ? "global::CSteroid.Medium.MediumNext<" + route.Message.GlobalName + ", " + ResponseType(route) + ">"
-                : "global::CSteroid.Medium.MediumNext<" + route.Message.GlobalName + ">";
+                : route.Kind == RouteKind.Stream
+                    ? "global::CSteroid.Medium.MediumStreamNext<" + route.Message.GlobalName + ", " + ResponseType(route) + ">"
+                    : "global::CSteroid.Medium.MediumNext<" + route.Message.GlobalName + ">";
 
         private static string BehaviorInterfaceType(RoutePlan route) =>
             route.Kind == RouteKind.CommandWithResponse
                 ? "global::CSteroid.Medium.IPipelineBehavior<" + route.Message.GlobalName + ", " + ResponseType(route) + ">"
-                : "global::CSteroid.Medium.IPipelineBehavior<" + route.Message.GlobalName + ">";
+                : route.Kind == RouteKind.Stream
+                    ? "global::CSteroid.Medium.IStreamPipelineBehavior<" + route.Message.GlobalName + ", " + ResponseType(route) + ">"
+                    : "global::CSteroid.Medium.IPipelineBehavior<" + route.Message.GlobalName + ">";
     }
 }

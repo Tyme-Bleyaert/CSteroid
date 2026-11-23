@@ -177,6 +177,15 @@ namespace CSteroid.Generator.Medium
                         CreateTypeRef(contract.TypeArguments[0]),
                         CreateTypeRef(contract.TypeArguments[1])));
                 }
+                else if (contracts.StreamPipelineBehavior is not null
+                    && SymbolEqualityComparer.Default.Equals(contract.OriginalDefinition, contracts.StreamPipelineBehavior)
+                    && contract.TypeArguments.Length == 2)
+                {
+                    result.Add(new BehaviorContractFact(
+                        BehaviorContractKind.Stream,
+                        CreateTypeRef(contract.TypeArguments[0]),
+                        CreateTypeRef(contract.TypeArguments[1])));
+                }
             }
 
             result.Sort(static (left, right) =>

@@ -105,6 +105,17 @@ namespace CSteroid.Generator.Medium
                 use.MessageIsAccessible,
                 use.ResponseIsAccessible,
                 isCompositionRoot);
+            if (use.CommandKind == RouteKind.Stream)
+            {
+                return Issue(
+                    MediumDiagnostics.MissingStreamRouteId,
+                    use.StableKey,
+                    use.Location,
+                    properties,
+                    use.CommandType.GlobalName,
+                    ProducerGuidance(use.CommandType, consumerAssemblyName));
+            }
+
             return Issue(
                 MediumDiagnostics.MissingSendRouteId,
                 use.StableKey,
@@ -185,22 +196,36 @@ namespace CSteroid.Generator.Medium
 
         private static bool HasValidHandlerContract(TypeRef message, TypeRef? response, RouteKind kind)
         {
-            var responses = GetResponseContracts(message);
+            var responses = GetContracts(message, MediumRuntimeContracts.CommandOfTMetadataName);
+            var streamItems = GetContracts(message, MediumRuntimeContracts.StreamCommandOfTMetadataName);
+            var isStream = HasContract(message, MediumRuntimeContracts.StreamCommandMetadataName);
             switch (kind)
             {
                 case RouteKind.Message:
                     return HasContract(message, MediumRuntimeContracts.MessageMetadataName)
-                        && !HasContract(message, MediumRuntimeContracts.CommandMetadataName);
+                        && !HasContract(message, MediumRuntimeContracts.CommandMetadataName)
+                        && !isStream;
                 case RouteKind.Command:
                     return responses.Count == 0
-                        && HasContract(message, MediumRuntimeContracts.CommandMetadataName);
+                        && HasContract(message, MediumRuntimeContracts.CommandMetadataName)
+                        && !isStream;
                 case RouteKind.CommandWithResponse:
                     return response is not null
                         && !response.ContainsTypeParameters
                         && !response.ContainsPointer
                         && responses.Count == 1
                         && responses[0].TypeArguments.Count == 1
-                        && string.Equals(responses[0].TypeArguments[0].RouteKey, response.RouteKey, StringComparison.Ordinal);
+                        && string.Equals(responses[0].TypeArguments[0].RouteKey, response.RouteKey, StringComparison.Ordinal)
+                        && !isStream;
+                case RouteKind.Stream:
+                    return response is not null
+                        && !response.ContainsTypeParameters
+                        && !response.ContainsPointer
+                        && streamItems.Count == 1
+                        && streamItems[0].TypeArguments.Count == 1
+                        && string.Equals(streamItems[0].TypeArguments[0].RouteKey, response.RouteKey, StringComparison.Ordinal)
+                        && isStream
+                        && !HasContract(message, MediumRuntimeContracts.CommandMetadataName);
                 default:
                     return false;
             }
@@ -315,21 +340,25 @@ namespace CSteroid.Generator.Medium
                 return RejectInvalidRoute(handler, route, "the exact route must use a non-generic concrete message and closed response");
             }
 
-            var responses = GetResponseContracts(message);
+            var responses = GetContracts(message, MediumRuntimeContracts.CommandOfTMetadataName);
             if (responses.Count > 1)
                 return RejectInvalidRoute(handler, route, "the message declares multiple response contracts");
+            var streamItems = GetContracts(message, MediumRuntimeContracts.StreamCommandOfTMetadataName);
+            if (streamItems.Count > 1)
+                return RejectInvalidRoute(handler, route, "the message declares multiple stream item contracts");
+            var isStream = HasContract(message, MediumRuntimeContracts.StreamCommandMetadataName);
 
             switch (route.Kind)
             {
                 case RouteKind.Message:
-                    if (HasContract(message, MediumRuntimeContracts.CommandMetadataName))
+                    if (HasContract(message, MediumRuntimeContracts.CommandMetadataName) || isStream)
                         return RejectInvalidRoute(handler, route, "a command cannot be declared as an event handler");
                     break;
                 case RouteKind.Command:
                     if (responses.Count != 0)
                         return RejectInvalidRoute(handler, route, "a response command cannot be handled as non-response");
-                    if (!HasContract(message, MediumRuntimeContracts.CommandMetadataName))
-                        return RejectInvalidRoute(handler, route, "the message is not a command");
+                    if (!HasContract(message, MediumRuntimeContracts.CommandMetadataName) || isStream)
+                        return RejectInvalidRoute(handler, route, "the message is not a non-stream command");
                     break;
                 case RouteKind.CommandWithResponse:
                     if (responses.Count != 1
@@ -339,19 +368,32 @@ namespace CSteroid.Generator.Medium
                     {
                         return RejectInvalidRoute(handler, route, "the handler response does not match the command's only response contract");
                     }
+                    if (isStream)
+                        return RejectInvalidRoute(handler, route, "a stream command cannot also be a response command");
+                    break;
+                case RouteKind.Stream:
+                    if (streamItems.Count != 1
+                        || route.Response is null
+                        || streamItems[0].TypeArguments.Count != 1
+                        || !string.Equals(streamItems[0].TypeArguments[0].RouteKey, route.Response.RouteKey, StringComparison.Ordinal))
+                    {
+                        return RejectInvalidRoute(handler, route, "the handler item type does not match the stream command's only item contract");
+                    }
+                    if (!isStream || HasContract(message, MediumRuntimeContracts.CommandMetadataName))
+                        return RejectInvalidRoute(handler, route, "a stream command cannot also be a non-stream command");
                     break;
             }
             return RouteEvaluation.Valid(handler, route);
         }
 
-        private static List<TypeRef> GetResponseContracts(TypeRef message)
+        private static List<TypeRef> GetContracts(TypeRef message, string metadataIdentity)
         {
             var result = new List<TypeRef>();
-            if (string.Equals(message.MetadataIdentity, MediumRuntimeContracts.CommandOfTMetadataName, StringComparison.Ordinal))
+            if (string.Equals(message.MetadataIdentity, metadataIdentity, StringComparison.Ordinal))
                 result.Add(message);
             foreach (var contract in message.AllInterfaces)
             {
-                if (!string.Equals(contract.MetadataIdentity, MediumRuntimeContracts.CommandOfTMetadataName, StringComparison.Ordinal))
+                if (!string.Equals(contract.MetadataIdentity, metadataIdentity, StringComparison.Ordinal))
                     continue;
                 var exists = false;
                 foreach (var item in result)
