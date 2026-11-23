@@ -374,7 +374,7 @@ The compiler project has `OutputItemType=Analyzer`, `IncludeBuildOutput=false`,
 and `IsPackable=false`. It contains both the incremental generator and diagnostic
 analyzer, allowing them to share policy code without another package dependency.
 
-The compiler uses Roslyn `4.10.0` and `Microsoft.CodeAnalysis.Analyzers` `3.3.4`.
+The compiler uses Roslyn `5.12.0` and `Microsoft.CodeAnalysis.Analyzers` `5.12.0`.
 It does not binary-reference the runtime project; runtime types are resolved by
 exact metadata name.
 
