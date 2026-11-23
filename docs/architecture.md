@@ -44,9 +44,10 @@ For the essentials (stack, commands, rules), see `AGENTS.md`.
 
 ## Technology details
 
-* Generator projects emit their build output as an **Analyzer**
+* Standalone generator projects emit their build output as an **Analyzer**
   (`<OutputItemType>Analyzer</OutputItemType>`) and are marked **packable** for
-  NuGet distribution.
+  NuGet distribution. Medium instead packs its nonpackable generator and
+  analyzer through the `CSteroid.Medium` runtime project.
 * Roslyn packages: `Microsoft.CodeAnalysis.CSharp` 4.10.0,
   `Microsoft.CodeAnalysis.Analyzers` 3.3.4.
 
@@ -274,7 +275,7 @@ dependency groups without exposing generator DLLs as regular references.
 `CSteroid.Generator.Shared` is bundled rather than listed as a dependency.
 
 ```bash
-# Pack everything at once (Core, Orm, all 8 generators):
+# Pack all packable projects:
 dotnet pack src/CSteroid/CSteroid.slnx -c Release
 ```
 
@@ -282,5 +283,5 @@ dotnet pack src/CSteroid/CSteroid.slnx -c Release
 overrides it from the git tag (`git tag v1.2.0 && git push origin v1.2.0` publishes
 `1.2.0` to NuGet.org using the `NUGET_API_KEY` repository secret).
 
-CI lives in `.github/workflows/`: `ci.yml` builds, tests, runs the HexagonalDdd
-self-checks, and packs on every push/PR; `publish.yml` publishes on `v*` tags.
+CI lives in `.github/workflows/`: `ci.yml` builds and tests on every push/PR.
+The manually dispatched `release.yml` packs and publishes after approval.

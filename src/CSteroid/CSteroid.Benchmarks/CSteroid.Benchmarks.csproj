@@ -13,14 +13,20 @@
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+    <PackageReference Include="MediatR" Version="12.5.0" />
     <PackageReference Include="Riok.Mapperly" Version="4.3.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\CSteroid.Core\CSteroid.Core.csproj" />
+    <ProjectReference Include="..\CSteroid.Medium\CSteroid.Medium.csproj" />
     <ProjectReference Include="..\CSteroid.Generator\CSteroid.Generator.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CSteroid.Generator.Mapping\CSteroid.Generator.Mapping.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CSteroid.Generator.Validation\CSteroid.Generator.Validation.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <!-- Raw references support the Roslyn build benchmarks; the analyzer generates this assembly's mediator. -->
+    <Reference Include="..\CSteroid.Generator.Medium\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Medium.dll" />
+    <Reference Include="..\CSteroid.Generator.Shared\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Shared.dll" />
+    <ProjectReference Include="..\CSteroid.Generator.Medium\CSteroid.Generator.Medium.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <!-- Analyzer dependency: Roslyn resolves CSteroid.Generator.Shared.dll from the additional analyzer path. -->
     <ProjectReference Include="..\CSteroid.Generator.Shared\CSteroid.Generator.Shared.csproj" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>

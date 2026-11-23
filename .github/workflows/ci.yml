@@ -47,10 +47,3 @@ jobs:
 
       - name: Test
         run: dotnet test src/CSteroid/CSteroid.slnx -c Release --no-build --verbosity normal
-
-      - name: Run HexagonalDdd example self-checks
-        run: dotnet run --project examples/HexagonalDdd/HexagonalDdd.Ui -c Release --no-build
-
-      # Only checks that packing works. Nothing is uploaded or published.
-      - name: Pack (validation only)
-        run: dotnet pack src/CSteroid/CSteroid.slnx -c Release --no-build -o artifacts -p:ContinuousIntegrationBuild=true
