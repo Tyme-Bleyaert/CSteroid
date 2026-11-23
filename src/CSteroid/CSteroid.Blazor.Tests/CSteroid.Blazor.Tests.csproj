@@ -17,7 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\CSteroid.Core\CSteroid.Core.csproj" />
-    <ProjectReference Include="..\CSteroid.Blazor\CSteroid.Blazor.csproj" />
+    <ProjectReference Include="..\CSteroid.BlazorValidator\CSteroid.BlazorValidator.csproj" />
   </ItemGroup>
 
   <ItemGroup>

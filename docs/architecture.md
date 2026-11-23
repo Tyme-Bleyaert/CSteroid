@@ -8,7 +8,7 @@ For the essentials (stack, commands, rules), see `AGENTS.md`.
 * **CSteroid.Core** – Public API surface consumers reference: attributes, enums,
   `IMapper<TSource,TDest>`, and the lightweight validation rule engine
   (`IValidator<T>`, `IAsyncValidator<T>`, `IRuleBuilder<T>`, etc.).
-* **CSteroid.Blazor** – Blazor `EditContext` integration for custom validation.
+* **CSteroid.BlazorValidator** – Blazor `EditContext` integration for custom validation.
   The component owns message-store/event wiring, whole-model sync/async runs,
   awaited submission, stale-result suppression, and field-path resolution. See
   `blazor-validation.md`.

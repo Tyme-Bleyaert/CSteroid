@@ -1,5 +1,6 @@
 using Bunit;
 using CSteroid;
+using CSteroid.BlazorValidator;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 

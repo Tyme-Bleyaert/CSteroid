@@ -86,7 +86,7 @@ internal partial class UserDtoValidator : IAsyncValidator<UserDto>
 **Requirements:** .NET SDK 6.0.100+ (or Visual Studio 2022+). The generated code uses
 C# 9 features (target-typed `new`, `is not null`), so the consuming project needs
 language version 9 or higher. Core and generator libraries target `netstandard2.0`
-and run on .NET Framework 4.6.1+ through .NET 10+. The optional `CSteroid.Blazor`
+and run on .NET Framework 4.6.1+ through .NET 10+. The optional `CSteroid.BlazorValidator`
 adapter targets .NET 8 and .NET 10.
 
 The typical workflow is: **define interfaces → build (generates) → override the partials you need**.
@@ -256,10 +256,10 @@ internal partial class UserDtoValidator
 
 ### Blazor EditContext
 
-Reference `CSteroid.Blazor`, then attach the caller-owned validator inside the form:
+Reference `CSteroid.BlazorValidator`, then attach the caller-owned validator inside the form:
 
 ```razor
-@using CSteroid.Blazor
+@using CSteroid.BlazorValidator
 
 <EditForm Model="_model" OnSubmit="SubmitAsync">
     <CSteroidValidator TModel="UserDto" Validator="_validator" @ref="_validation" />

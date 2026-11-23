@@ -4,7 +4,7 @@
   </Folder>
   <Project Path="CSteroid.Benchmarks/CSteroid.Benchmarks.csproj" />
   <Project Path="CSteroid.Core/CSteroid.Core.csproj" />
-  <Project Path="CSteroid.Blazor/CSteroid.Blazor.csproj" />
+  <Project Path="CSteroid.BlazorValidator/CSteroid.BlazorValidator.csproj" />
   <Project Path="CSteroid.Orm/CSteroid.Orm.csproj" />
   <Project Path="CSteroid.Generator/CSteroid.Generator.csproj" />
   <Project Path="CSteroid.Generator.CosmosDB/CSteroid.Generator.CosmosDB.csproj" />

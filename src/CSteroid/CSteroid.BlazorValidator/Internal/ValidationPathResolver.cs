@@ -4,7 +4,7 @@ using System.Globalization;
 using System.Reflection;
 using Microsoft.AspNetCore.Components.Forms;
 
-namespace CSteroid.Blazor.Internal
+namespace CSteroid.BlazorValidator.Internal
 {
     internal static class ValidationPathResolver
     {

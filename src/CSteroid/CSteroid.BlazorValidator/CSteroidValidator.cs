@@ -2,11 +2,11 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using CSteroid.Blazor.Internal;
+using CSteroid.BlazorValidator.Internal;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Forms;
 
-namespace CSteroid.Blazor
+namespace CSteroid.BlazorValidator
 {
     /// <summary>
     /// Connects a caller-owned CSteroid validator to the cascading EditContext.
