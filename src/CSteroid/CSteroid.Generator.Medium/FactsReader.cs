@@ -349,8 +349,10 @@ namespace CSteroid.Generator.Medium
                 name = containing.MetadataName + "+" + name;
                 containing = containing.ContainingType;
             }
-            var ns = symbol.ContainingNamespace;
-            return ns is { IsGlobalNamespace: false } ? ns.ToDisplayString() + "." + name : name;
+            var namespaces = new Stack<string>();
+            for (var ns = symbol.ContainingNamespace; ns is { IsGlobalNamespace: false }; ns = ns.ContainingNamespace)
+                namespaces.Push(ns.Name);
+            return namespaces.Count == 0 ? name : string.Join(".", namespaces) + "." + name;
         }
 
         private static LocationInfo GetSymbolLocation(ISymbol symbol, ISymbol fallback)

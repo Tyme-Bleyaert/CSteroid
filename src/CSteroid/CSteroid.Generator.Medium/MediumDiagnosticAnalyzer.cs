@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -24,7 +25,9 @@ namespace CSteroid.Generator.Medium
             MediumDiagnostics.DuplicateBehavior,
             MediumDiagnostics.InvalidClosedBehavior,
             MediumDiagnostics.InvalidManifest,
-            MediumDiagnostics.MissingPublishRoute);
+            MediumDiagnostics.MissingPublishRoute,
+            MediumDiagnostics.MissingCompositionRoot,
+            MediumDiagnostics.UnregisteredBehavior);
 
         public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => Rules;
 
@@ -42,16 +45,25 @@ namespace CSteroid.Generator.Medium
                 var state = new AnalyzerState(contracts);
                 start.RegisterSymbolAction(symbolContext =>
                 {
-                    if (symbolContext.Symbol is INamedTypeSymbol symbol
-                        && symbol.Locations.Any(static location => location.IsInSource)
-                        && FactsReader.ReadHandler(symbol, symbolContext.Compilation, state.Contracts) is { } handler)
+                    if (symbolContext.Symbol is not INamedTypeSymbol symbol
+                        || !symbol.Locations.Any(static location => location.IsInSource))
                     {
-                        state.Handlers[handler.HandlerType.RouteKey] = handler;
+                        return;
                     }
+                    if (FactsReader.ReadHandler(symbol, symbolContext.Compilation, state.Contracts) is { } handler)
+                        state.Handlers[handler.HandlerType.RouteKey] = handler;
+                    if (FactsReader.ReadSourceBehavior(symbol, symbolContext.Compilation, state.Contracts) is { } behavior)
+                        state.Behaviors[BehaviorIdentity(behavior.BehaviorType!)] = behavior;
                 }, SymbolKind.NamedType);
                 start.RegisterSyntaxNodeAction(syntaxContext =>
                 {
-                    if (FactsReader.ReadSendUse(
+                    if (FactsReader.ReadAddMediumUse(
+                            (InvocationExpressionSyntax)syntaxContext.Node,
+                            syntaxContext.SemanticModel) is { } addMediumUse)
+                    {
+                        state.AddMediumUses.Add(addMediumUse);
+                    }
+                    else if (FactsReader.ReadSendUse(
                             (InvocationExpressionSyntax)syntaxContext.Node,
                             syntaxContext.SemanticModel,
                             state.Contracts) is { } sendUse)
@@ -82,14 +94,32 @@ namespace CSteroid.Generator.Medium
             var issues = new List<RuleIssue>(global.Issues);
             foreach (var use in state.SendUses)
             {
-                if (RoutePolicy.EvaluateSendUse(use, handlerPlan) is { } issue)
+                if (RoutePolicy.EvaluateSendUse(
+                        use,
+                        handlerPlan,
+                        context.Compilation.Assembly.Name,
+                        compilation.IsCompositionRoot) is { } issue)
+                {
                     issues.Add(issue);
+                }
             }
             foreach (var use in state.PublishUses)
             {
-                if (RoutePolicy.EvaluatePublishUse(use, handlerPlan) is { } issue)
+                if (RoutePolicy.EvaluatePublishUse(
+                        use,
+                        handlerPlan,
+                        context.Compilation.Assembly.Name,
+                        compilation.IsCompositionRoot) is { } issue)
+                {
                     issues.Add(issue);
+                }
             }
+
+            if (!compilation.IsCompositionRoot)
+                AddMissingRootIssue(state, issues);
+            else
+                AddUnregisteredBehaviorIssues(compilation, state, issues);
+
             issues.Sort(static (left, right) =>
             {
                 var result = string.CompareOrdinal(left.RuleId, right.RuleId);
@@ -107,25 +137,104 @@ namespace CSteroid.Generator.Medium
                 var arguments = new object[issue.MessageArguments.Count];
                 for (int i = 0; i < arguments.Length; i++)
                     arguments[i] = issue.MessageArguments[i];
+                var properties = ImmutableDictionary.CreateBuilder<string, string?>(StringComparer.Ordinal);
+                foreach (var property in issue.Properties)
+                    properties[property.Key] = property.Value;
                 context.ReportDiagnostic(Diagnostic.Create(
                     descriptor,
-                    ToLocation(issue.Location),
+                    ToLocation(context.Compilation, issue.Location),
+                    properties.ToImmutable(),
                     arguments));
             }
         }
 
-        private static Location ToLocation(LocationInfo location) =>
-            location.FilePath.Length == 0
-                ? Location.None
-                : Location.Create(location.FilePath, location.TextSpan, location.LineSpan);
+        private static void AddMissingRootIssue(AnalyzerState state, List<RuleIssue> issues)
+        {
+            AddMediumUseFact? first = null;
+            foreach (var use in state.AddMediumUses)
+            {
+                if (first is null
+                    || string.CompareOrdinal(use.Location.FilePath, first.Location.FilePath) < 0
+                    || string.Equals(use.Location.FilePath, first.Location.FilePath, StringComparison.Ordinal)
+                        && use.Location.TextSpan.Start < first.Location.TextSpan.Start)
+                {
+                    first = use;
+                }
+            }
+            if (first is not null)
+            {
+                issues.Add(new RuleIssue(
+                    MediumDiagnostics.MissingCompositionRootId,
+                    "CompositionRoot",
+                    first.Location,
+                    new EquatableArray<string>(ImmutableArray<string>.Empty)));
+            }
+        }
+
+        private static void AddUnregisteredBehaviorIssues(
+            CompilationFacts compilation,
+            AnalyzerState state,
+            List<RuleIssue> issues)
+        {
+            var declared = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var behavior in compilation.Behaviors)
+            {
+                if (behavior.BehaviorType is not null)
+                    declared.Add(BehaviorIdentity(behavior.BehaviorType));
+            }
+
+            foreach (var behavior in state.Behaviors.Values)
+            {
+                var type = behavior.BehaviorType!;
+                var identity = BehaviorIdentity(type);
+                if (declared.Contains(identity))
+                    continue;
+                issues.Add(new RuleIssue(
+                    MediumDiagnostics.UnregisteredBehaviorId,
+                    identity,
+                    behavior.Location,
+                    new EquatableArray<string>(ImmutableArray.Create(type.GlobalName)),
+                    new EquatableArray<DiagnosticProperty>(ImmutableArray.Create(
+                        new DiagnosticProperty(MediumDiagnosticProperties.BehaviorTypeOfOperand, BehaviorTypeOfOperand(behavior)),
+                        new DiagnosticProperty(MediumDiagnosticProperties.BehaviorIdentity, identity),
+                        new DiagnosticProperty(MediumDiagnosticProperties.BehaviorLifetime, LifetimeModel.Scoped.ToString())))));
+            }
+        }
+
+        private static string BehaviorIdentity(TypeRef type) =>
+            type.MetadataIdentity + "|" + type.AssemblyName;
+
+        private static string BehaviorTypeOfOperand(BehaviorDeclarationFact behavior)
+        {
+            var name = behavior.BehaviorType!.GlobalName;
+            if (!behavior.IsOpenGenericDefinition)
+                return name;
+            var genericStart = name.IndexOf('<');
+            if (genericStart >= 0)
+                name = name.Substring(0, genericStart);
+            return name + "<" + new string(',', behavior.TypeParameterNames.Count - 1) + ">";
+        }
+
+        private static Location ToLocation(Compilation compilation, LocationInfo location)
+        {
+            if (location.FilePath.Length == 0)
+                return Location.None;
+            var tree = compilation.SyntaxTrees.FirstOrDefault(
+                candidate => string.Equals(candidate.FilePath, location.FilePath, StringComparison.Ordinal));
+            return tree is null
+                ? Location.Create(location.FilePath, location.TextSpan, location.LineSpan)
+                : Location.Create(tree, location.TextSpan);
+        }
 
         private sealed class AnalyzerState
         {
             internal AnalyzerState(MediumRuntimeContracts contracts) => Contracts = contracts;
             internal MediumRuntimeContracts Contracts { get; }
             internal ConcurrentDictionary<string, HandlerDeclarationModel> Handlers { get; } = new();
+            internal ConcurrentDictionary<string, BehaviorDeclarationFact> Behaviors { get; } = new();
             internal ConcurrentBag<SendUseFact> SendUses { get; } = new();
             internal ConcurrentBag<PublishUseFact> PublishUses { get; } = new();
+            internal ConcurrentBag<AddMediumUseFact> AddMediumUses { get; } = new();
         }
     }
 }

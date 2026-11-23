@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace CSteroid.Generator.Medium
 {
@@ -25,44 +26,23 @@ namespace CSteroid.Generator.Medium
                 var behaviorType = attribute.ConstructorArguments.Length == 1
                     ? attribute.ConstructorArguments[0].Value as INamedTypeSymbol
                     : null;
-                var typeParameterNames = ImmutableArray<string>.Empty;
-                var constraints = ImmutableArray<BehaviorConstraintFact>.Empty;
-                var contractsRead = ImmutableArray<BehaviorContractFact>.Empty;
-                ServiceShapeFact? shape = null;
-                var isOpenGenericDefinition = false;
-
-                if (behaviorType is not null)
-                {
-                    var definition = behaviorType.IsUnboundGenericType
-                        ? behaviorType.OriginalDefinition
-                        : behaviorType;
-                    shape = ReadServiceShape(definition);
-                    isOpenGenericDefinition = behaviorType.IsUnboundGenericType;
-                    if (definition.TypeParameters.Length != 0)
-                    {
-                        var names = ImmutableArray.CreateBuilder<string>(definition.TypeParameters.Length);
-                        var constraintBuilder = ImmutableArray.CreateBuilder<BehaviorConstraintFact>(definition.TypeParameters.Length);
-                        foreach (var parameter in definition.TypeParameters)
-                        {
-                            names.Add(parameter.Name);
-                            constraintBuilder.Add(ReadBehaviorConstraint(parameter));
-                        }
-                        typeParameterNames = names.ToImmutable();
-                        constraints = constraintBuilder.ToImmutable();
-                    }
-                    contractsRead = ReadBehaviorContracts(definition, contracts);
-                }
-
-                declarations.Add(new BehaviorDeclarationFact(
-                    behaviorType is null ? null : CreateTypeRef(behaviorType),
-                    shape,
-                    isOpenGenericDefinition,
-                    new EquatableArray<string>(typeParameterNames),
-                    new EquatableArray<BehaviorConstraintFact>(constraints),
-                    new EquatableArray<BehaviorContractFact>(contractsRead),
-                    ReadNamedInt32(attribute, "Order", 0),
-                    MapServiceLifetime(ReadNamedInt32(attribute, "Lifetime", 1)),
-                    location));
+                declarations.Add(behaviorType is null
+                    ? new BehaviorDeclarationFact(
+                        null,
+                        null,
+                        false,
+                        new EquatableArray<string>(ImmutableArray<string>.Empty),
+                        new EquatableArray<BehaviorConstraintFact>(ImmutableArray<BehaviorConstraintFact>.Empty),
+                        new EquatableArray<BehaviorContractFact>(ImmutableArray<BehaviorContractFact>.Empty),
+                        ReadNamedInt32(attribute, "Order", 0),
+                        MapServiceLifetime(ReadNamedInt32(attribute, "Lifetime", 1)),
+                        location)
+                    : ReadBehaviorDeclaration(
+                        behaviorType,
+                        contracts,
+                        location,
+                        ReadNamedInt32(attribute, "Order", 0),
+                        MapServiceLifetime(ReadNamedInt32(attribute, "Lifetime", 1))));
             }
 
             declarations.Sort(static (left, right) =>
@@ -71,6 +51,81 @@ namespace CSteroid.Generator.Medium
                 return result != 0 ? result : left.Location.TextSpan.Start.CompareTo(right.Location.TextSpan.Start);
             });
             return new EquatableArray<BehaviorDeclarationFact>(declarations.ToImmutable());
+        }
+
+        internal static BehaviorDeclarationFact? ReadSourceBehavior(
+            INamedTypeSymbol symbol,
+            Compilation compilation,
+            MediumRuntimeContracts contracts)
+        {
+            if (symbol.TypeKind != TypeKind.Class
+                || ReadBehaviorContracts(symbol, contracts).Length == 0
+                || !IsAccessibleType(symbol, compilation.Assembly))
+            {
+                return null;
+            }
+
+            var location = GetSymbolLocation(symbol, symbol);
+            foreach (var reference in symbol.DeclaringSyntaxReferences)
+            {
+                if (reference.GetSyntax() is TypeDeclarationSyntax declarationSyntax)
+                {
+                    location = CreateLocation(reference.SyntaxTree, declarationSyntax.Identifier.Span);
+                    break;
+                }
+            }
+
+            var declarationType = symbol.TypeParameters.Length == 0
+                ? symbol
+                : symbol.ConstructUnboundGenericType();
+            var declaration = ReadBehaviorDeclaration(
+                declarationType,
+                contracts,
+                location,
+                order: 0,
+                lifetime: (int)LifetimeModel.Scoped);
+            var plan = BehaviorPolicy.BuildDeclarationPlan(
+                new EquatableArray<BehaviorDeclarationFact>(ImmutableArray.Create(declaration)));
+            return plan.ValidDeclarations.Count == 1 && BehaviorPolicy.HasUsableClosedShape(declaration)
+                ? declaration
+                : null;
+        }
+
+        private static BehaviorDeclarationFact ReadBehaviorDeclaration(
+            INamedTypeSymbol behaviorType,
+            MediumRuntimeContracts contracts,
+            LocationInfo location,
+            int order,
+            int lifetime)
+        {
+            var definition = behaviorType.IsUnboundGenericType
+                ? behaviorType.OriginalDefinition
+                : behaviorType;
+            var typeParameterNames = ImmutableArray<string>.Empty;
+            var constraints = ImmutableArray<BehaviorConstraintFact>.Empty;
+            if (definition.TypeParameters.Length != 0)
+            {
+                var names = ImmutableArray.CreateBuilder<string>(definition.TypeParameters.Length);
+                var constraintBuilder = ImmutableArray.CreateBuilder<BehaviorConstraintFact>(definition.TypeParameters.Length);
+                foreach (var parameter in definition.TypeParameters)
+                {
+                    names.Add(parameter.Name);
+                    constraintBuilder.Add(ReadBehaviorConstraint(parameter));
+                }
+                typeParameterNames = names.ToImmutable();
+                constraints = constraintBuilder.ToImmutable();
+            }
+
+            return new BehaviorDeclarationFact(
+                CreateTypeRef(behaviorType),
+                ReadServiceShape(definition),
+                behaviorType.IsUnboundGenericType,
+                new EquatableArray<string>(typeParameterNames),
+                new EquatableArray<BehaviorConstraintFact>(constraints),
+                new EquatableArray<BehaviorContractFact>(ReadBehaviorContracts(definition, contracts)),
+                order,
+                lifetime,
+                location);
         }
 
         private static BehaviorConstraintFact ReadBehaviorConstraint(ITypeParameterSymbol parameter)

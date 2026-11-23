@@ -18,6 +18,7 @@
   <ItemGroup>
     <!-- Build-order only: the built analyzer DLLs are packed explicitly below. -->
     <ProjectReference Include="..\CSteroid.Generator.Medium\CSteroid.Generator.Medium.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
+    <ProjectReference Include="..\CSteroid.Generator.Medium.CodeFixes\CSteroid.Generator.Medium.CodeFixes.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
     <ProjectReference Include="..\CSteroid.Generator.Shared\CSteroid.Generator.Shared.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" />
     <!-- Pack the analyzer payload next to the runtime lib. -->
     <None Include="..\CSteroid.Generator.Medium\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Medium.dll"
@@ -25,6 +26,10 @@
           PackagePath="analyzers/dotnet/cs"
           Visible="false" />
     <None Include="..\CSteroid.Generator.Shared\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Shared.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+    <None Include="..\CSteroid.Generator.Medium.CodeFixes\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Medium.CodeFixes.dll"
           Pack="true"
           PackagePath="analyzers/dotnet/cs"
           Visible="false" />

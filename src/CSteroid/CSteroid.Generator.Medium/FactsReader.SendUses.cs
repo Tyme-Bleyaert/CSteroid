@@ -29,9 +29,20 @@ namespace CSteroid.Generator.Medium
                     && SymbolEqualityComparer.Default.Equals(named.OriginalDefinition, contracts.CommandOfT)
                 ? RouteKind.CommandWithResponse
                 : RouteKind.Command;
+            ITypeSymbol? responseType = null;
+            if (kind == RouteKind.CommandWithResponse)
+            {
+                responseType = method.IsGenericMethod && method.TypeArguments.Length == 1
+                    ? method.TypeArguments[0]
+                    : ((INamedTypeSymbol)method.Parameters[0].Type).TypeArguments[0];
+            }
+
             return new SendUseFact(
                 CreateTypeRef(commandType),
                 kind,
+                responseType is null ? null : CreateTypeRef(responseType),
+                IsAccessibleType(commandType, semanticModel.Compilation.Assembly),
+                responseType is null || IsAccessibleType(responseType, semanticModel.Compilation.Assembly),
                 CreateLocation(invocation.SyntaxTree, invocation.Span));
         }
 
@@ -55,6 +66,7 @@ namespace CSteroid.Generator.Medium
 
             return new PublishUseFact(
                 CreateTypeRef(messageType),
+                IsAccessibleType(messageType, semanticModel.Compilation.Assembly),
                 CreateLocation(invocation.SyntaxTree, invocation.Span));
         }
 

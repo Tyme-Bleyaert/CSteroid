@@ -15,13 +15,15 @@ namespace CSteroid.Generator.Medium
         internal const string InvalidClosedBehaviorId = "CSM016";
         internal const string InvalidManifestId = "CSM017";
         internal const string MissingPublishRouteId = "CSM018";
+        internal const string MissingCompositionRootId = "CSM019";
+        internal const string UnregisteredBehaviorId = "CSM020";
 
         private const string Category = "CSteroid.Medium";
 
         internal static readonly DiagnosticDescriptor MissingSendRoute = new DiagnosticDescriptor(
             id: MissingSendRouteId,
             title: "Medium Send use has no exact route",
-            messageFormat: "Command '{0}' has no valid exact {1} Send route",
+            messageFormat: "Command '{0}' has no valid exact {1} Send route{2}",
             category: Category,
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true,
@@ -102,7 +104,7 @@ namespace CSteroid.Generator.Medium
         internal static readonly DiagnosticDescriptor InvalidManifest = new DiagnosticDescriptor(
             id: InvalidManifestId,
             title: "Medium manifest is invalid",
-            messageFormat: "Manifest from referenced assembly '{0}' is invalid because {1}",
+            messageFormat: "Manifest from referenced assembly '{0}' is invalid because {1}. Ensure the producer references a compatible CSteroid.Medium generator and is rebuilt so it generates Medium.Manifest.g.cs.",
             category: Category,
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true,
@@ -111,9 +113,27 @@ namespace CSteroid.Generator.Medium
         internal static readonly DiagnosticDescriptor MissingPublishRoute = new DiagnosticDescriptor(
             id: MissingPublishRouteId,
             title: "Medium Publish use has no exact route",
-            messageFormat: "Message '{0}' has no valid exact Publish route; at least one handler is required",
+            messageFormat: "Message '{0}' has no valid exact Publish route; at least one handler is required{1}",
             category: Category,
             defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true,
+            customTags: WellKnownDiagnosticTags.CompilationEnd);
+
+        internal static readonly DiagnosticDescriptor MissingCompositionRoot = new DiagnosticDescriptor(
+            id: MissingCompositionRootId,
+            title: "Medium composition root is missing",
+            messageFormat: "Medium AddMedium() requires [assembly: MediumCompositionRoot] in persistent source",
+            category: Category,
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true,
+            customTags: WellKnownDiagnosticTags.CompilationEnd);
+
+        internal static readonly DiagnosticDescriptor UnregisteredBehavior = new DiagnosticDescriptor(
+            id: UnregisteredBehaviorId,
+            title: "Medium behavior has no assembly declaration",
+            messageFormat: "Behavior '{0}' has no [assembly: MediumBehavior] declaration; add the source-authored declaration to enable registration",
+            category: Category,
+            defaultSeverity: DiagnosticSeverity.Warning,
             isEnabledByDefault: true,
             customTags: WellKnownDiagnosticTags.CompilationEnd);
 
@@ -143,9 +163,27 @@ namespace CSteroid.Generator.Medium
                     return InvalidManifest;
                 case MissingPublishRouteId:
                     return MissingPublishRoute;
+                case MissingCompositionRootId:
+                    return MissingCompositionRoot;
+                case UnregisteredBehaviorId:
+                    return UnregisteredBehavior;
                 default:
                     throw new System.ArgumentOutOfRangeException(nameof(ruleId), ruleId, "Unknown Medium rule");
             }
         }
+    }
+    internal static class MediumDiagnosticProperties
+    {
+        internal const string RouteKind = "Medium.RouteKind";
+        internal const string MessageGlobalName = "Medium.MessageGlobalName";
+        internal const string ResponseGlobalName = "Medium.ResponseGlobalName";
+        internal const string MessageMetadataIdentity = "Medium.MessageMetadataIdentity";
+        internal const string MessageAssemblyName = "Medium.MessageAssemblyName";
+        internal const string MessageIsAccessible = "Medium.MessageIsAccessible";
+        internal const string ResponseIsAccessible = "Medium.ResponseIsAccessible";
+        internal const string HandlerFixEligible = "Medium.HandlerFixEligible";
+        internal const string BehaviorTypeOfOperand = "Medium.BehaviorTypeOfOperand";
+        internal const string BehaviorIdentity = "Medium.BehaviorIdentity";
+        internal const string BehaviorLifetime = "Medium.BehaviorLifetime";
     }
 }

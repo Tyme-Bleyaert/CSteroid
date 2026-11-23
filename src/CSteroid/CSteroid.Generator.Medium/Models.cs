@@ -201,11 +201,39 @@ namespace CSteroid.Generator.Medium
 
     internal sealed record LocationInfo(string FilePath, TextSpan TextSpan, LinePositionSpan LineSpan);
 
-    internal sealed record RuleIssue(
-        string RuleId,
-        string StableKey,
-        LocationInfo Location,
-        EquatableArray<string> MessageArguments);
+    internal sealed record DiagnosticProperty(string Key, string Value);
+
+    internal sealed record RuleIssue
+    {
+        internal RuleIssue(
+            string ruleId,
+            string stableKey,
+            LocationInfo location,
+            EquatableArray<string> messageArguments,
+            EquatableArray<DiagnosticProperty> properties = default)
+        {
+            RuleId = ruleId;
+            StableKey = stableKey;
+            Location = location;
+            MessageArguments = messageArguments;
+
+            var sorted = ImmutableArray.CreateBuilder<DiagnosticProperty>(properties.Count);
+            foreach (var property in properties)
+                sorted.Add(property);
+            sorted.Sort(static (left, right) =>
+            {
+                var result = string.CompareOrdinal(left.Key, right.Key);
+                return result != 0 ? result : string.CompareOrdinal(left.Value, right.Value);
+            });
+            Properties = new EquatableArray<DiagnosticProperty>(sorted.ToImmutable());
+        }
+
+        internal string RuleId { get; }
+        internal string StableKey { get; }
+        internal LocationInfo Location { get; }
+        internal EquatableArray<string> MessageArguments { get; }
+        internal EquatableArray<DiagnosticProperty> Properties { get; }
+    }
 
     internal sealed record HandlerRouteModel
     {
@@ -307,15 +335,26 @@ namespace CSteroid.Generator.Medium
         EquatableArray<HandlerDeclarationModel> ImportedHandlers,
         EquatableArray<RuleIssue> ImportIssues);
 
-    internal sealed record SendUseFact(TypeRef CommandType, RouteKind CommandKind, LocationInfo Location)
+    internal sealed record SendUseFact(
+        TypeRef CommandType,
+        RouteKind CommandKind,
+        TypeRef? ResponseType,
+        bool MessageIsAccessible,
+        bool ResponseIsAccessible,
+        LocationInfo Location)
     {
-        internal string StableKey => CommandType.RouteKey + "\0" + CommandKind + "\0" + Location.FilePath + "\0" + Location.TextSpan.Start;
+        internal string StableKey => CommandType.RouteKey + " " + CommandKind + " " + Location.FilePath + " " + Location.TextSpan.Start;
     }
 
-    internal sealed record PublishUseFact(TypeRef MessageType, LocationInfo Location)
+    internal sealed record PublishUseFact(
+        TypeRef MessageType,
+        bool MessageIsAccessible,
+        LocationInfo Location)
     {
-        internal string StableKey => MessageType.RouteKey + "\0Publish\0" + Location.FilePath + "\0" + Location.TextSpan.Start;
+        internal string StableKey => MessageType.RouteKey + " Publish " + Location.FilePath + " " + Location.TextSpan.Start;
     }
+
+    internal sealed record AddMediumUseFact(LocationInfo Location);
 
     internal sealed record BehaviorStepPlan(TypeRef BehaviorType, int Lifetime);
 

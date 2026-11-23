@@ -114,7 +114,7 @@ namespace CSteroid.Generator.Medium
 
         private static void EmitResponseTable(CodeWriter writer, List<RoutePlan> routes)
         {
-            writer.AppendLine("private delegate global::System.Threading.Tasks.ValueTask<TResponse> __MED_ResponseDispatch<TResponse>(global::System.IServiceProvider services, global::CSteroid.Medium.ICommand<TResponse> command, global::System.Threading.CancellationToken cancellationToken);");
+            writer.AppendLine("private delegate global::System.Threading.Tasks.ValueTask<TResponse> __MED_ResponseDispatch<TResponse>(GeneratedMedium medium, global::CSteroid.Medium.ICommand<TResponse> command, global::System.Threading.CancellationToken cancellationToken);");
             writer.AppendLine();
             writer.OpenBlock("private static readonly global::System.Collections.Generic.Dictionary<global::System.Type, global::System.Delegate> __med_responseRoutes = new global::System.Collections.Generic.Dictionary<global::System.Type, global::System.Delegate>");
             foreach (var route in routes)
@@ -126,7 +126,7 @@ namespace CSteroid.Generator.Medium
 
         private static void EmitCommandTable(CodeWriter writer, List<RoutePlan> routes)
         {
-            writer.AppendLine("private delegate global::System.Threading.Tasks.ValueTask __MED_CommandDispatch(global::System.IServiceProvider services, global::CSteroid.Medium.ICommand command, global::System.Threading.CancellationToken cancellationToken);");
+            writer.AppendLine("private delegate global::System.Threading.Tasks.ValueTask __MED_CommandDispatch(GeneratedMedium medium, global::CSteroid.Medium.ICommand command, global::System.Threading.CancellationToken cancellationToken);");
             writer.AppendLine();
             writer.OpenBlock("private static readonly global::System.Collections.Generic.Dictionary<global::System.Type, __MED_CommandDispatch> __med_commandRoutes = new global::System.Collections.Generic.Dictionary<global::System.Type, __MED_CommandDispatch>");
             foreach (var route in routes)
@@ -140,7 +140,7 @@ namespace CSteroid.Generator.Medium
             CodeWriter writer,
             List<List<RoutePlan>> eventRoutes)
         {
-            writer.AppendLine("private delegate global::System.Threading.Tasks.ValueTask __MED_PublishDispatch(global::System.IServiceProvider services, global::CSteroid.Medium.IMessage message, global::System.Threading.CancellationToken cancellationToken);");
+            writer.AppendLine("private delegate global::System.Threading.Tasks.ValueTask __MED_PublishDispatch(GeneratedMedium medium, global::CSteroid.Medium.IMessage message, global::System.Threading.CancellationToken cancellationToken);");
             writer.AppendLine();
             writer.OpenBlock("private static readonly global::System.Collections.Generic.Dictionary<global::System.Type, __MED_PublishDispatch> __med_publishRoutes = new global::System.Collections.Generic.Dictionary<global::System.Type, __MED_PublishDispatch>");
             foreach (var subscribers in eventRoutes)
@@ -161,7 +161,7 @@ namespace CSteroid.Generator.Medium
             if (hasRoutes)
             {
                 writer.OpenBlock("if (__med_responseRoutes.TryGetValue(command.GetType(), out var route))");
-                writer.AppendLine("return ((__MED_ResponseDispatch<TResponse>)route)(_services, command, cancellationToken);");
+                writer.AppendLine("return ((__MED_ResponseDispatch<TResponse>)route)(this, command, cancellationToken);");
                 writer.CloseBlock();
                 writer.AppendLine();
             }
@@ -179,7 +179,7 @@ namespace CSteroid.Generator.Medium
             if (hasRoutes)
             {
                 writer.OpenBlock("if (__med_commandRoutes.TryGetValue(command.GetType(), out var route))");
-                writer.AppendLine("return route(_services, command, cancellationToken);");
+                writer.AppendLine("return route(this, command, cancellationToken);");
                 writer.CloseBlock();
                 writer.AppendLine();
             }
@@ -201,7 +201,7 @@ namespace CSteroid.Generator.Medium
             if (hasRoutes)
             {
                 writer.OpenBlock("if (__med_publishRoutes.TryGetValue(message.GetType(), out var route))");
-                writer.AppendLine("return route(_services, message, cancellationToken);");
+                writer.AppendLine("return route(this, message, cancellationToken);");
                 writer.CloseBlock();
                 writer.AppendLine();
             }
@@ -217,11 +217,12 @@ namespace CSteroid.Generator.Medium
                 : "global::CSteroid.Medium.ICommand";
             var pipelineName = "__MED_Send_" + route.MemberId;
             var terminalName = pipelineName + "Terminal";
+            var continuationName = "__med_send_" + route.MemberId + "Terminal";
 
-            writer.AppendLine("private static " + returnType + " __MED_Dispatch_" + route.MemberId + "(global::System.IServiceProvider services, " + commandInterface + " command, global::System.Threading.CancellationToken cancellationToken)");
-            writer.AppendLine("    => " + pipelineName + "(services, (" + route.Message.GlobalName + ")command, cancellationToken);");
+            writer.AppendLine("private static " + returnType + " __MED_Dispatch_" + route.MemberId + "(GeneratedMedium medium, " + commandInterface + " command, global::System.Threading.CancellationToken cancellationToken)");
+            writer.AppendLine("    => medium." + pipelineName + "((" + route.Message.GlobalName + ")command, cancellationToken);");
             writer.AppendLine();
-            EmitPipeline(writer, route, pipelineName, "command", terminalName);
+            EmitPipeline(writer, route, pipelineName, "command", terminalName, continuationName);
             writer.AppendLine();
             EmitHandlerTerminal(writer, route, terminalName, "command");
         }
@@ -232,11 +233,12 @@ namespace CSteroid.Generator.Medium
             var memberId = PublishMemberId(first.Message.RouteKey);
             var pipelineName = "__MED_Publish_" + memberId;
             var fanoutName = pipelineName + "Fanout";
+            var continuationName = "__med_publish_" + memberId + "Fanout";
 
-            writer.AppendLine("private static global::System.Threading.Tasks.ValueTask __MED_Dispatch_Publish_" + memberId + "(global::System.IServiceProvider services, global::CSteroid.Medium.IMessage message, global::System.Threading.CancellationToken cancellationToken)");
-            writer.AppendLine("    => " + pipelineName + "(services, (" + first.Message.GlobalName + ")message, cancellationToken);");
+            writer.AppendLine("private static global::System.Threading.Tasks.ValueTask __MED_Dispatch_Publish_" + memberId + "(GeneratedMedium medium, global::CSteroid.Medium.IMessage message, global::System.Threading.CancellationToken cancellationToken)");
+            writer.AppendLine("    => medium." + pipelineName + "((" + first.Message.GlobalName + ")message, cancellationToken);");
             writer.AppendLine();
-            EmitPipeline(writer, first, pipelineName, "message", fanoutName);
+            EmitPipeline(writer, first, pipelineName, "message", fanoutName, continuationName);
             writer.AppendLine();
 
             if (subscribers.Count == 1)
@@ -266,19 +268,29 @@ namespace CSteroid.Generator.Medium
             RoutePlan route,
             string methodName,
             string parameterName,
-            string terminalName)
+            string terminalName,
+            string continuationName)
         {
-            writer.OpenBlock("private static " + ReturnType(route) + " " + methodName + "(global::System.IServiceProvider services, " + route.Message.GlobalName + " " + parameterName + ", global::System.Threading.CancellationToken cancellationToken)");
+            var nextType = NextType(route);
+            if (route.Behaviors.Count != 0)
+            {
+                writer.AppendLine("private " + nextType + "? " + continuationName + ";");
+                writer.AppendLine();
+            }
+
+            writer.OpenBlock("private " + ReturnType(route) + " " + methodName + "(" + route.Message.GlobalName + " " + parameterName + ", global::System.Threading.CancellationToken cancellationToken)");
             if (route.Behaviors.Count == 0)
             {
-                writer.AppendLine("return " + terminalName + "(services, " + parameterName + ", cancellationToken);");
+                writer.AppendLine("return " + terminalName + "(_services, " + parameterName + ", cancellationToken);");
                 writer.CloseBlock();
                 return;
             }
 
-            var nextType = NextType(route);
-            writer.AppendLine(nextType + " __med_next0 =");
-            writer.AppendLine("    (message, ct) => " + terminalName + "(services, message, ct);");
+            writer.AppendLine("var __med_next0 = " + continuationName + ";");
+            writer.OpenBlock("if (__med_next0 is null)");
+            writer.AppendLine("__med_next0 = " + methodName + "Continuation;");
+            writer.AppendLine(continuationName + " = __med_next0;");
+            writer.CloseBlock();
             writer.AppendLine();
 
             var step = 0;
@@ -288,7 +300,7 @@ namespace CSteroid.Generator.Medium
                 var behaviorName = "__med_behavior" + step;
                 writer.AppendLine("var " + behaviorName + " =");
                 writer.AppendLine("    (" + BehaviorInterfaceType(route) + ")");
-                writer.AppendLine("    global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" + behavior.BehaviorType.GlobalName + ">(services);");
+                writer.AppendLine("    global::Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<" + behavior.BehaviorType.GlobalName + ">(_services);");
                 writer.AppendLine(nextType + " __med_next" + (step + 1) + " =");
                 writer.AppendLine("    (message, ct) => " + behaviorName + ".Handle(message, __med_next" + step + ", ct);");
                 writer.AppendLine();
@@ -297,6 +309,9 @@ namespace CSteroid.Generator.Medium
 
             writer.AppendLine("return __med_next" + step + "(" + parameterName + ", cancellationToken);");
             writer.CloseBlock();
+            writer.AppendLine();
+            writer.AppendLine("private " + ReturnType(route) + " " + methodName + "Continuation(" + route.Message.GlobalName + " message, global::System.Threading.CancellationToken cancellationToken)");
+            writer.AppendLine("    => " + terminalName + "(_services, message, cancellationToken);");
         }
 
         private static void EmitHandlerTerminal(

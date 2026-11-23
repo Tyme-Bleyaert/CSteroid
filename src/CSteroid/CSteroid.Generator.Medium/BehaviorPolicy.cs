@@ -298,9 +298,18 @@ namespace CSteroid.Generator.Medium
             return false;
         }
 
+        internal static bool HasUsableClosedShape(BehaviorDeclarationFact declaration) =>
+            GetClosedBehaviorError(declaration) is null;
+
         private static RuleIssue? ValidateClosedBehavior(
             BehaviorDeclarationFact declaration,
             TypeRef message)
+        {
+            var error = GetClosedBehaviorError(declaration);
+            return error is null ? null : ClosedBehaviorIssue(declaration, message, error);
+        }
+
+        private static string? GetClosedBehaviorError(BehaviorDeclarationFact declaration)
         {
             var shape = declaration.Shape!;
             foreach (var type in shape.TypeChain)
@@ -311,7 +320,7 @@ namespace CSteroid.Generator.Medium
                 {
                     continue;
                 }
-                return ClosedBehaviorIssue(declaration, message, "the closed behavior is inaccessible");
+                return "the closed behavior is inaccessible";
             }
 
             foreach (var constructor in shape.Constructors)
@@ -335,7 +344,7 @@ namespace CSteroid.Generator.Medium
                     return null;
             }
 
-            return ClosedBehaviorIssue(declaration, message, "no public DI-constructible instance constructor is available");
+            return "no public DI-constructible instance constructor is available";
         }
 
         private static RuleIssue ClosedBehaviorIssue(

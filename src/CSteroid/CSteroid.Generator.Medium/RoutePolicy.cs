@@ -74,7 +74,11 @@ namespace CSteroid.Generator.Medium
                 ToArray(issues));
         }
 
-        internal static RuleIssue? EvaluateSendUse(SendUseFact use, HandlerDeclarationPlan plan)
+        internal static RuleIssue? EvaluateSendUse(
+            SendUseFact use,
+            HandlerDeclarationPlan plan,
+            string consumerAssemblyName,
+            bool isCompositionRoot)
         {
             foreach (var route in plan.ValidRoutes)
             {
@@ -94,15 +98,28 @@ namespace CSteroid.Generator.Medium
                 }
             }
 
+            var properties = HandlerFixProperties(
+                use.CommandType,
+                use.ResponseType,
+                use.CommandKind,
+                use.MessageIsAccessible,
+                use.ResponseIsAccessible,
+                isCompositionRoot);
             return Issue(
                 MediumDiagnostics.MissingSendRouteId,
                 use.StableKey,
                 use.Location,
+                properties,
                 use.CommandType.GlobalName,
-                use.CommandKind == RouteKind.CommandWithResponse ? "response" : "non-response");
+                use.CommandKind == RouteKind.CommandWithResponse ? "response" : "non-response",
+                ProducerGuidance(use.CommandType, consumerAssemblyName));
         }
 
-        internal static RuleIssue? EvaluatePublishUse(PublishUseFact use, HandlerDeclarationPlan plan)
+        internal static RuleIssue? EvaluatePublishUse(
+            PublishUseFact use,
+            HandlerDeclarationPlan plan,
+            string consumerAssemblyName,
+            bool isCompositionRoot)
         {
             foreach (var route in plan.ValidRoutes)
             {
@@ -122,11 +139,80 @@ namespace CSteroid.Generator.Medium
                 }
             }
 
+            var properties = HandlerFixProperties(
+                use.MessageType,
+                null,
+                RouteKind.Message,
+                use.MessageIsAccessible,
+                true,
+                isCompositionRoot);
             return Issue(
                 MediumDiagnostics.MissingPublishRouteId,
                 use.StableKey,
                 use.Location,
-                use.MessageType.GlobalName);
+                properties,
+                use.MessageType.GlobalName,
+                ProducerGuidance(use.MessageType, consumerAssemblyName));
+        }
+
+        private static EquatableArray<DiagnosticProperty> HandlerFixProperties(
+            TypeRef message,
+            TypeRef? response,
+            RouteKind kind,
+            bool messageIsAccessible,
+            bool responseIsAccessible,
+            bool isCompositionRoot)
+        {
+            var eligible = isCompositionRoot
+                && messageIsAccessible
+                && responseIsAccessible
+                && message.Kind == TypeRefKind.Named
+                && !message.IsAbstract
+                && !message.ContainsTypeParameters
+                && !message.ContainsPointer
+                && message.TypeArguments.Count == 0
+                && HasValidHandlerContract(message, response, kind);
+            return new EquatableArray<DiagnosticProperty>(ImmutableArray.Create(
+                new DiagnosticProperty(MediumDiagnosticProperties.RouteKind, ((int)kind).ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                new DiagnosticProperty(MediumDiagnosticProperties.MessageGlobalName, message.GlobalName),
+                new DiagnosticProperty(MediumDiagnosticProperties.ResponseGlobalName, response?.GlobalName ?? string.Empty),
+                new DiagnosticProperty(MediumDiagnosticProperties.MessageMetadataIdentity, message.MetadataIdentity),
+                new DiagnosticProperty(MediumDiagnosticProperties.MessageAssemblyName, message.AssemblyName),
+                new DiagnosticProperty(MediumDiagnosticProperties.MessageIsAccessible, messageIsAccessible.ToString()),
+                new DiagnosticProperty(MediumDiagnosticProperties.ResponseIsAccessible, responseIsAccessible.ToString()),
+                new DiagnosticProperty(MediumDiagnosticProperties.HandlerFixEligible, eligible.ToString())));
+        }
+
+        private static bool HasValidHandlerContract(TypeRef message, TypeRef? response, RouteKind kind)
+        {
+            var responses = GetResponseContracts(message);
+            switch (kind)
+            {
+                case RouteKind.Message:
+                    return HasContract(message, MediumRuntimeContracts.MessageMetadataName)
+                        && !HasContract(message, MediumRuntimeContracts.CommandMetadataName);
+                case RouteKind.Command:
+                    return responses.Count == 0
+                        && HasContract(message, MediumRuntimeContracts.CommandMetadataName);
+                case RouteKind.CommandWithResponse:
+                    return response is not null
+                        && !response.ContainsTypeParameters
+                        && !response.ContainsPointer
+                        && responses.Count == 1
+                        && responses[0].TypeArguments.Count == 1
+                        && string.Equals(responses[0].TypeArguments[0].RouteKey, response.RouteKey, StringComparison.Ordinal);
+                default:
+                    return false;
+            }
+        }
+
+        private static string ProducerGuidance(TypeRef message, string consumerAssemblyName)
+        {
+            return message.AssemblyName.Length == 0
+                || string.Equals(message.AssemblyName, consumerAssemblyName, StringComparison.Ordinal)
+                ? string.Empty
+                : "; ensure producer assembly '" + message.AssemblyName
+                    + "' references CSteroid.Medium and is rebuilt so its generator emits Medium.Manifest.g.cs";
         }
 
         private static List<RuleIssue> EvaluateDeclaration(HandlerDeclarationModel handler)
@@ -366,6 +452,14 @@ namespace CSteroid.Generator.Medium
             LocationInfo location,
             params string[] arguments) =>
             new(ruleId, stableKey, location, new EquatableArray<string>(ImmutableArray.Create(arguments)));
+
+        private static RuleIssue Issue(
+            string ruleId,
+            string stableKey,
+            LocationInfo location,
+            EquatableArray<DiagnosticProperty> properties,
+            params string[] arguments) =>
+            new(ruleId, stableKey, location, new EquatableArray<string>(ImmutableArray.Create(arguments)), properties);
 
         private static EquatableArray<T> ToArray<T>(IEnumerable<T> values) where T : IEquatable<T> =>
             new(ImmutableArray.CreateRange(values));

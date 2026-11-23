@@ -10,9 +10,14 @@ public class MediumAnalyzerTests
     {
         var analyzer = new global::CSteroid.Generator.Medium.MediumDiagnosticAnalyzer();
         Assert.Equal(
-            new[] { "CSM001", "CSM002", "CSM006", "CSM011", "CSM012", "CSM013", "CSM014", "CSM015", "CSM016", "CSM017", "CSM018" },
+            new[] { "CSM001", "CSM002", "CSM006", "CSM011", "CSM012", "CSM013", "CSM014", "CSM015", "CSM016", "CSM017", "CSM018", "CSM019", "CSM020" },
             analyzer.SupportedDiagnostics.Select(descriptor => descriptor.Id));
-        Assert.All(analyzer.SupportedDiagnostics, descriptor => Assert.Equal(DiagnosticSeverity.Error, descriptor.DefaultSeverity));
+        Assert.All(
+            analyzer.SupportedDiagnostics.Where(descriptor => descriptor.Id != "CSM020"),
+            descriptor => Assert.Equal(DiagnosticSeverity.Error, descriptor.DefaultSeverity));
+        Assert.Equal(
+            DiagnosticSeverity.Warning,
+            Assert.Single(analyzer.SupportedDiagnostics, descriptor => descriptor.Id == "CSM020").DefaultSeverity);
     }
 
     [Fact]
@@ -263,6 +268,8 @@ public class MediumAnalyzerTests
         var diagnostic = Assert.Single(await Analyze(root));
         Assert.Equal("CSM017", diagnostic.Id);
         Assert.Contains("Sample.Application", diagnostic.GetMessage());
+        Assert.Contains("rebuilt", diagnostic.GetMessage());
+        Assert.Contains("Medium.Manifest.g.cs", diagnostic.GetMessage());
     }
 
     [Fact]

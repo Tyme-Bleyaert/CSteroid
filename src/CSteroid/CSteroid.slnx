@@ -8,6 +8,7 @@
   <Project Path="CSteroid.Medium/CSteroid.Medium.csproj" />
   <Project Path="CSteroid.Generator/CSteroid.Generator.csproj" />
   <Project Path="CSteroid.Generator.Medium/CSteroid.Generator.Medium.csproj" />
+  <Project Path="CSteroid.Generator.Medium.CodeFixes/CSteroid.Generator.Medium.CodeFixes.csproj" />
   <Project Path="CSteroid.Generator.CosmosDB/CSteroid.Generator.CosmosDB.csproj" />
   <Project Path="CSteroid.Generator.Dapper/CSteroid.Generator.Dapper.csproj" />
   <Project Path="CSteroid.Generator.EFCore/CSteroid.Generator.EFCore.csproj" />
