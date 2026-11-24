@@ -49,6 +49,7 @@ namespace CSteroid.Generator.Medium
                     route.Response,
                     handler.HandlerType,
                     handler.Lifetime,
+                    handler.Order,
                     new EquatableArray<BehaviorStepPlan>(steps.ToImmutable()),
                     StableName.Hash(key)));
                 registrations[handler.HandlerType.RouteKey] = new RegistrationPlan(handler.HandlerType, handler.Lifetime);
@@ -60,6 +61,9 @@ namespace CSteroid.Generator.Medium
                 if (result != 0)
                     return result;
                 result = string.CompareOrdinal(left.Message.RouteKey, right.Message.RouteKey);
+                if (result != 0)
+                    return result;
+                result = left.HandlerOrder.CompareTo(right.HandlerOrder);
                 return result != 0
                     ? result
                     : string.CompareOrdinal(left.HandlerType.RouteKey, right.HandlerType.RouteKey);

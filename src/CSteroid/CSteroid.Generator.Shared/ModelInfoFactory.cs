@@ -1,13 +1,107 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Microsoft.CodeAnalysis;
+using static CSteroid.Generator.Shared.OutputConventions;
+using static CSteroid.Generator.Shared.SourceTextHelper;
 
 namespace CSteroid.Generator.Shared
 {
     public static class ModelInfoFactory
     {
-        public static ModelInfo BuildModelInfo(INamedTypeSymbol interfaceSymbol, AttributeData attr, List<IPropertySymbol> allProperties, INamedTypeSymbol excludeAttrSymbol, IReadOnlyList<AttributeData> ormAttributes)
+        private static readonly SymbolDisplayFormat NullableFullyQualifiedFormat =
+            SymbolDisplayFormat.FullyQualifiedFormat.WithMiscellaneousOptions(
+                SymbolDisplayFormat.FullyQualifiedFormat.MiscellaneousOptions
+                | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
+
+        internal static InterfaceSpec BuildInterfaceInfo(
+            INamedTypeSymbol interfaceSymbol,
+            IEnumerable<AttributeData> canonicalAttributes,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var allAttrs = interfaceSymbol.GetAttributes();
+            var attrs = (canonicalAttributes ?? allAttrs
+                    .Where(a => a.AttributeClass?.ToDisplayString() == "CSteroid.CanonicalModelAttribute"))
+                .OrderBy(a => GetTarget(a) ?? interfaceSymbol.Name, StringComparer.Ordinal)
+                .ToList();
+            var allProperties = GetAllProperties(interfaceSymbol, cancellationToken)
+                .OrderBy(p => p.Name, StringComparer.Ordinal)
+                .ToList();
+            var ormAttrs = allAttrs
+                .Where(a => a.AttributeClass?.ToDisplayString() == "CSteroid.OrmTargetAttribute")
+                .ToList();
+            var models = new List<ModelInfo>();
+
+            foreach (var attr in attrs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var info = BuildModelInfo(interfaceSymbol, attr, allProperties, ormAttrs, cancellationToken);
+                if (info is not null)
+                    models.Add(info);
+            }
+
+            return new InterfaceSpec(
+                interfaceSymbol.ToDisplayString(),
+                new EquatableArray<ModelInfo>(models));
+        }
+
+        public static List<ModelInfo> MergeModels(IEnumerable<ModelInfo> source)
+        {
+            return source
+                .GroupBy(m => $"{GetModelNamespace(m)}.{m.Target}", StringComparer.Ordinal)
+                .Select(group => MergeModelGroup(group.OrderBy(m => m.InterfaceKey, StringComparer.Ordinal).ToList()))
+                .OrderBy(m => GetModelNamespace(m), StringComparer.Ordinal)
+                .ThenBy(m => m.Target, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private static ModelInfo MergeModelGroup(IReadOnlyList<ModelInfo> models)
+        {
+            var first = models[0];
+            var properties = models
+                .SelectMany(m => m.Properties)
+                .GroupBy(p => p.Name, StringComparer.Ordinal)
+                .Select(g => g.First())
+                .OrderBy(p => p.Name, StringComparer.Ordinal)
+                .ToList();
+
+            int validationType = 0;
+            int mappingTypes = 0;
+            int ormTarget = 0;
+            foreach (var model in models)
+            {
+                validationType |= model.ValidationType;
+                mappingTypes |= model.MappingTypes;
+                ormTarget |= model.OrmTarget;
+            }
+
+            return new ModelInfo(
+                first.InterfaceKey,
+                first.InterfaceLocation,
+                first.Target,
+                validationType,
+                mappingTypes,
+                first.DeclarationType,
+                ormTarget,
+                models.All(m => m.IsSimpleMapping),
+                models.Any(m => m.ForwardPropertyAttributes),
+                models.Select(m => m.PartitionKey).FirstOrDefault(value => value is not null),
+                first.CustomNamespace,
+                first.FolderPath,
+                new EquatableArray<PropertySpec>(properties),
+                models.Any(m => m.IsResolvableFromReferences),
+                models.Count);
+        }
+
+        private static ModelInfo BuildModelInfo(
+            INamedTypeSymbol interfaceSymbol,
+            AttributeData attr,
+            List<IPropertySymbol> allProperties,
+            IReadOnlyList<AttributeData> ormAttributes,
+            CancellationToken cancellationToken)
         {
             string target = GetTarget(attr);
             if (string.IsNullOrWhiteSpace(target))
@@ -24,59 +118,128 @@ namespace CSteroid.Generator.Shared
             string customNamespace = GetCustomNamespace(attr);
             string folderPath = GetFolderPath(attr);
 
-            var props = new List<IPropertySymbol>();
-            foreach (var p in allProperties)
+            var props = new List<PropertySpec>();
+            foreach (var property in allProperties)
             {
-                bool skip = false;
-
-                if (excludedFromAttr.Contains(p.Name))
-                    skip = true;
+                cancellationToken.ThrowIfCancellationRequested();
+                bool skip = excludedFromAttr.Contains(property.Name);
 
                 if (!skip)
                 {
-                    var exAttr = p.GetAttributes().FirstOrDefault(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, excludeAttrSymbol));
-                    if (exAttr != null)
-                    {
-                        var excludedModels = GetExcludedModels(exAttr);
-                        if (excludedModels.Contains(target))
-                            skip = true;
-                    }
+                    var exAttr = property.GetAttributes().FirstOrDefault(a =>
+                        a.AttributeClass?.ToDisplayString() == "CSteroid.ExcludeFromGenerationAttribute");
+                    if (exAttr != null && GetExcludedModels(exAttr).Contains(target, StringComparer.Ordinal))
+                        skip = true;
                 }
 
                 if (!skip)
-                    props.Add(p);
+                    props.Add(BuildProperty(property, interfaceSymbol, cancellationToken));
             }
 
-            return new ModelInfo
-            {
-                InterfaceSymbol = interfaceSymbol,
-                Target = target,
-                ValidationType = validationType,
-                MappingTypes = mappingTypes,
-                DeclarationType = declarationType,
-                OrmTarget = ormTarget,
-                IsSimpleMapping = isSimpleMapping,
-                ForwardPropertyAttributes = forwardPropertyAttributes,
-                PartitionKey = partitionKey,
-                CustomNamespace = customNamespace,
-                FolderPath = folderPath,
-                Properties = props
-            };
+            return new ModelInfo(
+                interfaceSymbol.ToDisplayString(),
+                LocationSpec.From(interfaceSymbol.Locations.FirstOrDefault()),
+                target,
+                validationType,
+                mappingTypes,
+                declarationType,
+                ormTarget,
+                isSimpleMapping,
+                forwardPropertyAttributes,
+                partitionKey,
+                customNamespace,
+                folderPath,
+                new EquatableArray<PropertySpec>(props));
         }
 
-        public static IEnumerable<IPropertySymbol> GetAllProperties(INamedTypeSymbol symbol)
+        private static PropertySpec BuildProperty(
+            IPropertySymbol property,
+            INamedTypeSymbol interfaceSymbol,
+            CancellationToken cancellationToken)
+        {
+            var attributes = property.GetAttributes()
+                .OrderBy(a => a.AttributeClass?.ToDisplayString() ?? string.Empty, StringComparer.Ordinal)
+                .Select(a => BuildAttribute(a, cancellationToken))
+                .ToList();
+
+            return new PropertySpec(
+                property.Name,
+                BuildType(property.Type),
+                GetPropertyDocumentation(property, interfaceSymbol),
+                new EquatableArray<AttributeSpec>(attributes));
+        }
+
+        private static TypeSpec BuildType(ITypeSymbol type)
+        {
+            string collectionElementName = null;
+            string collectionKind = null;
+
+            if (type is IArrayTypeSymbol arrayType)
+            {
+                collectionElementName = arrayType.ElementType.Name;
+                collectionKind = "Array";
+            }
+            else if (type is INamedTypeSymbol namedType && namedType.IsGenericType)
+            {
+                var definitionName = namedType.OriginalDefinition.Name;
+                if (definitionName is "List" or "IList" or "ICollection" or "IEnumerable" or "HashSet")
+                {
+                    collectionElementName = namedType.TypeArguments[0].Name;
+                    collectionKind = definitionName;
+                }
+            }
+
+            return new TypeSpec(
+                type.Name,
+                type.ToDisplayString(NullableFullyQualifiedFormat),
+                collectionElementName,
+                collectionKind);
+        }
+
+        private static AttributeSpec BuildAttribute(AttributeData attr, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var attributeClass = attr.AttributeClass;
+            var constructorArguments = attr.ConstructorArguments
+                .Select(BuildAttributeArgument)
+                .ToList();
+            var namedArguments = attr.NamedArguments
+                .OrderBy(n => n.Key, StringComparer.Ordinal)
+                .Select(n => new NamedAttributeArgumentSpec(n.Key, BuildAttributeArgument(n.Value)))
+                .ToList();
+
+            return new AttributeSpec(
+                attributeClass?.ToDisplayString() ?? string.Empty,
+                attributeClass?.ContainingNamespace?.ToDisplayString() ?? string.Empty,
+                attributeClass?.Name ?? string.Empty,
+                attributeClass?.IsImplicitlyDeclared ?? false,
+                AttributeFormatter.FormatAttribute(attr),
+                AttributeFormatter.FormatAttributeFullyQualified(attr),
+                new EquatableArray<AttributeArgumentSpec>(constructorArguments),
+                new EquatableArray<NamedAttributeArgumentSpec>(namedArguments));
+        }
+
+        private static AttributeArgumentSpec BuildAttributeArgument(TypedConstant constant)
+        {
+            return new AttributeArgumentSpec(
+                AttributeFormatter.FormatTypedConstant(constant),
+                constant.Kind == TypedConstantKind.Array ? null : constant.Value as string);
+        }
+
+        public static IEnumerable<IPropertySymbol> GetAllProperties(INamedTypeSymbol symbol, CancellationToken cancellationToken)
         {
             var dict = new Dictionary<string, IPropertySymbol>(StringComparer.Ordinal);
 
-            void Collect(INamedTypeSymbol s)
+            void Collect(INamedTypeSymbol current)
             {
-                foreach (var member in s.GetMembers().OfType<IPropertySymbol>())
+                cancellationToken.ThrowIfCancellationRequested();
+                foreach (var member in current.GetMembers().OfType<IPropertySymbol>())
                 {
                     if (!dict.ContainsKey(member.Name))
                         dict[member.Name] = member;
                 }
 
-                foreach (var iface in s.Interfaces)
+                foreach (var iface in current.Interfaces)
                     Collect(iface);
             }
 

@@ -280,6 +280,12 @@ public class RuntimeContractTests
         Assert.Equal(0, behavior.Order);
         Assert.Equal(ServiceLifetime.Scoped, behavior.Lifetime);
         Assert.True(GetUsage<MediumBehaviorAttribute>().AllowMultiple);
+
+        var messageHandler = new MessageHandlerAttribute { Order = 25 };
+        Assert.Equal(25, messageHandler.Order);
+        Assert.Equal(AttributeTargets.Class, GetUsage<MessageHandlerAttribute>().ValidOn);
+        Assert.False(GetUsage<MessageHandlerAttribute>().AllowMultiple);
+        Assert.True(typeof(MessageHandlerAttribute).IsSealed);
     }
 
     private static void AssertContravariant(Type type)

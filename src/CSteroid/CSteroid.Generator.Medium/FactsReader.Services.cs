@@ -179,6 +179,30 @@ namespace CSteroid.Generator.Medium
             }
         }
 
+        private static int ReadNamedInt32(
+            INamedTypeSymbol symbol,
+            INamedTypeSymbol? attributeType,
+            string name,
+            int defaultValue)
+        {
+            if (attributeType is null)
+                return defaultValue;
+            foreach (var attribute in symbol.GetAttributes())
+            {
+                if (!SymbolEqualityComparer.Default.Equals(attribute.AttributeClass, attributeType))
+                    continue;
+                foreach (var argument in attribute.NamedArguments)
+                {
+                    if (string.Equals(argument.Key, name, StringComparison.Ordinal)
+                        && argument.Value.Value is int value)
+                    {
+                        return value;
+                    }
+                }
+            }
+            return defaultValue;
+        }
+
         private static int ReadConstructorInt32(
             INamedTypeSymbol symbol,
             INamedTypeSymbol? attributeType,

@@ -255,7 +255,7 @@ namespace CSteroid.Generator.Medium
                 writer.CloseBlock();
                 writer.AppendLine();
             }
-            writer.AppendLine("throw new global::System.InvalidOperationException(\"No exact Medium publish route for \" + message.GetType().FullName + \".\");");
+            writer.AppendLine("return default;");
             writer.CloseBlock();
         }
 

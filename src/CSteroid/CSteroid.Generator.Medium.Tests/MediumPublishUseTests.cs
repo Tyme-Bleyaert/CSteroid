@@ -1,5 +1,3 @@
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using static CSteroid.Generator.Medium.Tests.MediumExecution;
 
 namespace CSteroid.Generator.Medium.Tests;
@@ -33,30 +31,22 @@ public class MediumPublishUseTests
     }
 
     [Fact]
-    public async Task MissingConcreteRoute_Reportscsm018AtInvocation()
+    public async Task HandlerlessConcreteMessage_AllowsPublishWithoutDiagnostics()
     {
-        const string source = """
+        Assert.Empty(await Analyze("""
             using CSteroid.Medium;
             public sealed class Missing : IMessage { }
             public sealed class Consumer
             {
                 public void Call(IPublisher publisher) => _ = publisher.Publish(new Missing());
             }
-            """;
-        var compilation = MediumTestCompilation.Create(source);
-
-        var diagnostic = Assert.Single(await Analyze(compilation));
-        Assert.Equal("CSM018", diagnostic.Id);
-        Assert.Equal(DiagnosticSeverity.Error, diagnostic.Severity);
-        var invocation = compilation.SyntaxTrees.Single().GetRoot().DescendantNodes()
-            .OfType<InvocationExpressionSyntax>().Single();
-        Assert.Equal(invocation.Span, diagnostic.Location.SourceSpan);
+            """));
     }
 
     [Fact]
     public async Task CompilerConversionToMessageInterface_UsesConcreteOperand()
     {
-        var diagnostic = Assert.Single(await Analyze("""
+        Assert.Empty(await Analyze("""
             using CSteroid.Medium;
             public sealed class Missing : IMessage { }
             public sealed class Consumer
@@ -64,8 +54,6 @@ public class MediumPublishUseTests
                 public void Call(IMedium mediator) => _ = mediator.Publish((IMessage)new Missing());
             }
             """));
-
-        Assert.Equal("CSM018", diagnostic.Id);
     }
 
     [Fact]

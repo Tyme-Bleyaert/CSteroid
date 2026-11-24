@@ -269,6 +269,7 @@ namespace CSteroid.Generator.Medium
             ServiceShapeFact shape,
             int lifetime,
             LocationInfo? lifetimeLocation,
+            int order,
             EquatableArray<HandlerRouteModel> routes,
             bool isAccessible,
             LocationInfo location)
@@ -277,6 +278,7 @@ namespace CSteroid.Generator.Medium
             Shape = shape;
             Lifetime = lifetime;
             LifetimeLocation = lifetimeLocation;
+            Order = order;
             Routes = routes;
             IsAccessible = isAccessible;
             Location = location;
@@ -286,6 +288,7 @@ namespace CSteroid.Generator.Medium
         internal ServiceShapeFact Shape { get; }
         internal int Lifetime { get; }
         internal LocationInfo? LifetimeLocation { get; }
+        internal int Order { get; }
         internal EquatableArray<HandlerRouteModel> Routes { get; }
         internal bool IsAccessible { get; }
         internal LocationInfo Location { get; }
@@ -365,6 +368,7 @@ namespace CSteroid.Generator.Medium
         TypeRef? Response,
         TypeRef HandlerType,
         int HandlerLifetime,
+        int HandlerOrder,
         EquatableArray<BehaviorStepPlan> Behaviors,
         string MemberId);
 

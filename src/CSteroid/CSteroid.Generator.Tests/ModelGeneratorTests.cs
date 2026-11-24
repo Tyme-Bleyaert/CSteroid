@@ -104,6 +104,8 @@ public interface ISecondDefinition
             var content = GeneratorTestHarness.GetGeneratedSource(compilation, "User.g.cs");
             // 'partial' is what merges duplicate target declarations.
             Assert.Contains("public sealed partial class User", content);
+            Assert.Contains("public int Id { get; set; }", content);
+            Assert.Contains("public string Name { get; set; }", content);
         }
 
         [Fact]

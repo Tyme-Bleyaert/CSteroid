@@ -52,6 +52,72 @@ public class MediumPublishEmissionTests
     }
 
     [Fact]
+    public async Task Publish_UsesExplicitOrderThenOrdinalHandlerIdentity()
+    {
+        var output = Generate("""
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Microsoft.Extensions.DependencyInjection;
+            using CSteroid.Medium;
+
+            [assembly: MediumCompositionRoot]
+
+            public sealed class Notice : IMessage { }
+            public static class State { public static string Log = string.Empty; }
+            [MessageHandler(Order = 10)]
+            public sealed class ZetaHandler : IMessageHandler<Notice>
+            {
+                public ValueTask Handle(Notice message, CancellationToken cancellationToken)
+                {
+                    State.Log += "Z";
+                    return default;
+                }
+            }
+            [MessageHandler(Order = -10)]
+            public sealed class BetaHandler : IMessageHandler<Notice>
+            {
+                public ValueTask Handle(Notice message, CancellationToken cancellationToken)
+                {
+                    State.Log += "B";
+                    return default;
+                }
+            }
+            [MessageHandler(Order = 10)]
+            public sealed class AlphaHandler : IMessageHandler<Notice>
+            {
+                public ValueTask Handle(Notice message, CancellationToken cancellationToken)
+                {
+                    State.Log += "A";
+                    return default;
+                }
+            }
+            [MessageHandler(Order = 20)]
+            public sealed class FirstHandler : IMessageHandler<Notice>
+            {
+                public ValueTask Handle(Notice message, CancellationToken cancellationToken)
+                {
+                    State.Log += "F";
+                    return default;
+                }
+            }
+            public static class Program
+            {
+                public static async Task<string> Run()
+                {
+                    var services = new ServiceCollection();
+                    services.AddMedium();
+                    using var provider = services.BuildServiceProvider();
+                    using var scope = provider.CreateScope();
+                    await scope.ServiceProvider.GetRequiredService<IPublisher>().Publish(new Notice());
+                    return State.Log;
+                }
+            }
+            """);
+
+        Assert.Equal("BAZF", await MediumExecution.RunProgramAsync<string>(MediumExecution.Emit(output)));
+    }
+
+    [Fact]
     public async Task PublishFailure_PropagatesOriginalFaultAndSkipsLaterHandlers()
     {
         var output = Generate("""
@@ -98,7 +164,7 @@ public class MediumPublishEmissionTests
     }
 
     [Fact]
-    public async Task UnknownEvent_Throws_AndNullOrCommandIsRejected()
+    public async Task UnknownEvent_IsNoOp_AndNullOrCommandIsRejected()
     {
         var output = Generate("""
             using System;
@@ -119,11 +185,7 @@ public class MediumPublishEmissionTests
                     using var provider = services.BuildServiceProvider();
                     using var scope = provider.CreateScope();
                     var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
-                    try { await publisher.Publish(new UnknownNotice()); return false; }
-                    catch (InvalidOperationException exception)
-                    {
-                        if (!exception.Message.Contains(nameof(UnknownNotice), StringComparison.Ordinal)) return false;
-                    }
+                    await publisher.Publish(new UnknownNotice());
                     try { await publisher.Publish(new Command()); return false; }
                     catch (ArgumentException) { }
                     try { await publisher.Publish(null!); return false; }

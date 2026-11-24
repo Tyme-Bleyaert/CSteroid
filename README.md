@@ -29,8 +29,12 @@ Add the `CSteroid.Generator` package to the target project, reference `CSteroid.
 using CSteroid;
 using System.ComponentModel.DataAnnotations;
 
-[CanonicalModelAttribute("MyApp.User", MappingTypes = MappingTypes.ExtensionMethod)]
-[CanonicalModelAttribute("MyApp.UserDto", ValidationType = ValidationType.Custom | ValidationType.Async)]
+[CanonicalModelAttribute("User", CustomNamespace = "MyApp", MappingTypes = MappingTypes.ExtensionMethod)]
+[CanonicalModelAttribute(
+    "UserDto",
+    CustomNamespace = "MyApp",
+    MappingTypes = MappingTypes.ExtensionMethod,
+    ValidationType = ValidationType.Custom | ValidationType.Async)]
 public interface IUserModelDefinition
 {
     public int Id { get; set; }
@@ -42,7 +46,7 @@ public interface IUserModelDefinition
     [EmailAddress]
     public string Email { get; set; }
 
-    [ExcludeFromGeneration("MyApp.UserDto")]
+    [ExcludeFromGeneration("UserDto")]
     public string SocialSecurity { get; set; }
 }
 ```
@@ -113,11 +117,16 @@ The typical workflow is: **define interfaces → build (generates) → override 
 
    ```csharp
    [CanonicalModelAttribute("Order", MappingTypes = MappingTypes.ExtensionMethod)]
-   [CanonicalModelAttribute("OrderDto")]
+   [CanonicalModelAttribute(
+       "OrderDto",
+       MappingTypes = MappingTypes.ExtensionMethod,
+       ValidationType = ValidationType.Custom)]
    public interface IOrderModelDefinition
    {
        public int Id { get; set; }
        public string Product { get; set; }
+       public int Quantity { get; set; }
+       public decimal UnitPrice { get; set; }
    }
    ```
 
@@ -131,18 +140,27 @@ The typical workflow is: **define interfaces → build (generates) → override 
 4. **Extend via partials** in your own files — never edit generated code:
 
    ```csharp
-   // Order.Behavior.cs — your file, same namespace as the generated Order
-   public partial class Order
+   using CSteroid;
+   using CSteroid.Generated.Models;
+
+   namespace CSteroid.Generated.Models
    {
-       public decimal Total => Quantity * UnitPrice;
+       // Order.Behavior.cs
+       public partial class Order
+       {
+           public decimal Total => Quantity * UnitPrice;
+       }
    }
 
-   // UserDtoValidator.cs — hook into the generated validator
-   internal partial class OrderDtoValidator
+   namespace CSteroid.Generated.Validation
    {
-       static partial void ConfigureValidation(ValidationConfiguration<OrderDto> config)
+       // OrderDtoValidator.cs
+       internal partial class OrderDtoValidator
        {
-           config.AddRules(rules => rules.For(x => x.Product).NotEmpty());
+           static partial void ConfigureValidation(ValidationConfiguration<OrderDto> config)
+           {
+               config.AddRules(rules => rules.For(x => x.Product).NotEmpty());
+           }
        }
    }
    ```
@@ -150,6 +168,8 @@ The typical workflow is: **define interfaces → build (generates) → override 
    Mappers have an equivalent hook (`static partial void ConfigureMapping(...)`) unless
    the model was marked `Simple = true`, which skips the override machinery for a
    branch-free, non-overridable fast path.
+
+   These samples compile in [`examples/ReadmeSample`](examples/ReadmeSample/).
 
 ### Multi-project solutions (metadata-lib mode)
 
@@ -279,7 +299,7 @@ Medium routes commands, streams, and messages to handlers. You write the message
    Console.WriteLine($"Created order {receipt.OrderId} for {receipt.Sku}");
    ```
 
-   `Send` calls exactly one handler for the command. `Publish` calls every handler for the message in order. Inject `ISender` into a class that only sends commands, or `IPublisher` into a class that only publishes messages. `IMedium` supports sending, streaming, and publishing.
+   `Send` calls exactly one handler for the command. `Publish` calls every handler for the message in order. Publishing a message with no handlers completes without invoking a behavior. Inject `ISender` into a class that only sends commands, or `IPublisher` into a class that only publishes messages. `IMedium` supports sending, streaming, and publishing.
 
    In ASP.NET Core, call `builder.Services.AddMedium()` instead of creating a `ServiceCollection`. You can then inject `IMedium`, `ISender`, `IStreamSender`, or `IPublisher` into your services and endpoints.
 
@@ -309,6 +329,24 @@ The same choices apply to a stream handler. Set a behavior's lifetime in its ass
     typeof(CreateOrderBehavior),
     Order = 100,
     Lifetime = ServiceLifetime.Transient)]
+```
+
+### Order message handlers
+
+Message handlers have `Order = 0` by default. Add `MessageHandler` to the handler class when publication needs a different order. Lower values run first. Handlers with equal values run in ordinal order by their assembly-aware type identities.
+
+```csharp
+[MessageHandler(Order = 100)]
+public sealed class AuditOrderCreatedHandler : IMessageHandler<OrderCreated>
+{
+    public ValueTask Handle(
+        OrderCreated message,
+        CancellationToken cancellationToken)
+    {
+        // Record the event after handlers with lower Order values.
+        return default;
+    }
+}
 ```
 
 ### Stream items

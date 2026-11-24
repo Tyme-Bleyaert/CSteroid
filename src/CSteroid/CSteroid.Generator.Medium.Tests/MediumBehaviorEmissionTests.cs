@@ -190,7 +190,7 @@ public class MediumBehaviorEmissionTests
     }
 
     [Fact]
-    public async Task UnknownPublishRoute_ThrowsAndSkipsGenericBehavior()
+    public async Task UnknownPublishRoute_CompletesAndSkipsGenericBehavior()
     {
         var output = Generate("""
             using System.Threading;
@@ -219,15 +219,8 @@ public class MediumBehaviorEmissionTests
                     services.AddMedium();
                     using var provider = services.BuildServiceProvider();
                     using var scope = provider.CreateScope();
-                    try
-                    {
-                        await scope.ServiceProvider.GetRequiredService<IPublisher>().Publish(new Unknown());
-                        return -1;
-                    }
-                    catch (System.InvalidOperationException)
-                    {
-                        return State.Calls;
-                    }
+                    await scope.ServiceProvider.GetRequiredService<IPublisher>().Publish(new Unknown());
+                    return State.Calls;
                 }
             }
             """);

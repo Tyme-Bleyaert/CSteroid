@@ -1,76 +1,47 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Linq;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 
 namespace CSteroid.Generator.Shared
 {
     /// <summary>
-    /// Finds [CanonicalModel] interfaces outside the current compilation: in referenced
-    /// assemblies that reference CSteroid.Core (the "metadata lib" pattern, where interfaces
-    /// live in a shared library and each consuming project generates its own models).
+    /// Finds [CanonicalModel] interfaces in referenced assemblies that reference CSteroid.Core.
     /// </summary>
     public static class ReferencedInterfaceDiscovery
     {
-        /// <summary>
-        /// Returns all in-source [CanonicalModel] interfaces merged with decorated interfaces
-        /// from referenced CSteroid.Core-referencing assemblies. In-source symbols win on
-        /// metadata-name collisions so a project can shadow a referenced definition.
-        /// Assemblies without a CSteroid.Core reference are skipped: they cannot carry
-        /// decorated interfaces, and walking them would waste generator time.
-        /// </summary>
-        public static List<INamedTypeSymbol> MergeWithReferenced(Compilation compilation, ImmutableArray<INamedTypeSymbol> sourceSymbols)
+        internal static List<InterfaceSpec> ReadReferenced(Compilation compilation, CancellationToken cancellationToken)
         {
-            return MergeWithReferenced(compilation, sourceSymbols, out _);
-        }
-
-        /// <summary>
-        /// Returns all in-source [CanonicalModel] interfaces merged with decorated interfaces
-        /// from referenced CSteroid.Core-referencing assemblies. In-source symbols win on
-        /// metadata-name collisions so a project can shadow a referenced definition.
-        /// Assemblies without a CSteroid.Core reference are skipped: they cannot carry
-        /// decorated interfaces, and walking them would waste generator time.
-        /// <paramref name="foundReferencedInterfaces"/> tells callers whether any decorated
-        /// interfaces came from referenced assemblies (used by config diagnostics).
-        /// </summary>
-        public static List<INamedTypeSymbol> MergeWithReferenced(Compilation compilation, ImmutableArray<INamedTypeSymbol> sourceSymbols, out bool foundReferencedInterfaces)
-        {
-            var merged = new Dictionary<string, INamedTypeSymbol>(StringComparer.Ordinal);
-            foreach (var symbol in sourceSymbols)
-            {
-                merged[symbol.ToDisplayString()] = symbol;
-            }
-
-            foundReferencedInterfaces = false;
-
+            var interfaces = new List<InterfaceSpec>();
             var canonicalAttrSymbol = compilation.GetTypeByMetadataName("CSteroid.CanonicalModelAttribute");
             if (canonicalAttrSymbol is null)
-                return merged.Values.ToList();
+                return interfaces;
 
             var attrName = canonicalAttrSymbol.ToDisplayString();
             var visitedAssemblies = new HashSet<IAssemblySymbol>(SymbolEqualityComparer.Default);
 
             foreach (var referencedAssembly in compilation.SourceModule.ReferencedAssemblySymbols)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (ReferencesCSteroidCore(referencedAssembly) && visitedAssemblies.Add(referencedAssembly))
                 {
-                    int countBefore = merged.Count;
-                    CollectInterfacesFromNamespace(referencedAssembly.GlobalNamespace, attrName, merged);
-                    foundReferencedInterfaces |= merged.Count > countBefore;
+                    CollectInterfacesFromNamespace(
+                        referencedAssembly.GlobalNamespace,
+                        attrName,
+                        interfaces,
+                        cancellationToken);
                 }
             }
 
-            return merged.Values.ToList();
+            return interfaces;
         }
 
         private static bool ReferencesCSteroidCore(IAssemblySymbol assembly)
         {
-            // NOTE: intentionally NOT assembly.GetTypeByMetadataName("CSteroid.CanonicalModel
-            // Attribute"): for in-memory metadata references (MetadataReference.CreateFromImage,
-            // used by the test harness) that lookup returns null when the referenced assembly's
-            // own Core reference collides with the consumer's. Checking the module's assembly
-            // references works in every scenario.
+            // In-memory metadata references do not reliably resolve the Core attribute through
+            // GetTypeByMetadataName when the consumer also references Core. Assembly references
+            // work in both metadata and in-memory scenarios.
             foreach (var module in assembly.Modules)
             {
                 foreach (var reference in module.ReferencedAssemblySymbols)
@@ -86,17 +57,19 @@ namespace CSteroid.Generator.Shared
         private static void CollectInterfacesFromNamespace(
             INamespaceSymbol ns,
             string canonicalAttrName,
-            Dictionary<string, INamedTypeSymbol> merged)
+            List<InterfaceSpec> interfaces,
+            CancellationToken cancellationToken)
         {
             foreach (var member in ns.GetMembers())
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 if (member is INamespaceSymbol childNamespace)
                 {
-                    CollectInterfacesFromNamespace(childNamespace, canonicalAttrName, merged);
+                    CollectInterfacesFromNamespace(childNamespace, canonicalAttrName, interfaces, cancellationToken);
                 }
                 else if (member is INamedTypeSymbol type)
                 {
-                    CollectInterfacesFromType(type, canonicalAttrName, merged);
+                    CollectInterfacesFromType(type, canonicalAttrName, interfaces, cancellationToken);
                 }
             }
         }
@@ -104,20 +77,18 @@ namespace CSteroid.Generator.Shared
         private static void CollectInterfacesFromType(
             INamedTypeSymbol type,
             string canonicalAttrName,
-            Dictionary<string, INamedTypeSymbol> merged)
+            List<InterfaceSpec> interfaces,
+            CancellationToken cancellationToken)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (type.TypeKind == TypeKind.Interface
                 && type.GetAttributes().Any(a => a.AttributeClass?.ToDisplayString() == canonicalAttrName))
             {
-                var key = type.ToDisplayString();
-                if (!merged.ContainsKey(key))
-                    merged.Add(key, type);
+                interfaces.Add(ModelInfoFactory.BuildInterfaceInfo(type, null, cancellationToken));
             }
 
             foreach (var nested in type.GetTypeMembers())
-            {
-                CollectInterfacesFromType(nested, canonicalAttrName, merged);
-            }
+                CollectInterfacesFromType(nested, canonicalAttrName, interfaces, cancellationToken);
         }
     }
 }

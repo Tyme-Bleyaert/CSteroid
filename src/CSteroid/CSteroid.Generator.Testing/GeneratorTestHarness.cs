@@ -14,8 +14,9 @@ namespace CSteroid.Generator.Testing
     {
         public static Compilation RunGenerator(IIncrementalGenerator[] generators, params string[] sources)
         {
-            var (compilation, _) = RunGeneratorCore(generators, sources);
+            var (compilation, diagnostics) = RunGeneratorCore(generators, sources);
 
+            Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
             var errors = compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
             Assert.Empty(errors);
 
@@ -29,8 +30,9 @@ namespace CSteroid.Generator.Testing
         /// </summary>
         public static Compilation RunGeneratorWithMetadataReference(IIncrementalGenerator[] generators, string[] metadataSources, params string[] consumerSources)
         {
-            var (compilation, _) = RunGeneratorWithMetadataReferenceAndDiagnostics(generators, metadataSources, consumerSources);
+            var (compilation, diagnostics) = RunGeneratorWithMetadataReferenceAndDiagnostics(generators, metadataSources, consumerSources);
 
+            Assert.Empty(diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error));
             var errors = compilation.GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error).ToList();
             Assert.Empty(errors);
 
@@ -81,6 +83,7 @@ namespace CSteroid.Generator.Testing
                 }
 
                 references.Add(MetadataReference.CreateFromFile(typeof(System.Linq.Expressions.Expression).Assembly.Location));
+                references.Add(MetadataReference.CreateFromFile(typeof(System.ComponentModel.DataAnnotations.ValidationAttribute).Assembly.Location));
 
                 // Generated DI registrations reference Microsoft.Extensions.DependencyInjection.
                 references.Add(MetadataReference.CreateFromFile(typeof(Microsoft.Extensions.DependencyInjection.IServiceCollection).Assembly.Location));
@@ -117,17 +120,26 @@ namespace CSteroid.Generator.Testing
             return RunGeneratorCore(generators, sources);
         }
 
-        private static (Compilation Compilation, ImmutableArray<Diagnostic> Diagnostics) RunGeneratorCore(IIncrementalGenerator[] generators, string[] sources, MetadataReference? extraReference = null)
+        public static CSharpCompilation CreateCompilation(
+            IEnumerable<SyntaxTree> syntaxTrees,
+            CSharpCompilationOptions? options = null,
+            MetadataReference? extraReference = null)
         {
-            var syntaxTrees = sources.Select(s => CSharpSyntaxTree.ParseText(s));
             var references = CreateDefaultReferences();
             if (extraReference != null)
                 references.Add(extraReference);
 
-            var compilation = CSharpCompilation.Create("TestAssembly",
+            return CSharpCompilation.Create(
+                "TestAssembly",
                 syntaxTrees,
                 references,
-                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+                options ?? new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+        }
+
+        private static (Compilation Compilation, ImmutableArray<Diagnostic> Diagnostics) RunGeneratorCore(IIncrementalGenerator[] generators, string[] sources, MetadataReference? extraReference = null)
+        {
+            var syntaxTrees = sources.Select(s => CSharpSyntaxTree.ParseText(s));
+            var compilation = CreateCompilation(syntaxTrees, extraReference: extraReference);
 
             var driver = CSharpGeneratorDriver.Create(generators);
             driver.RunGeneratorsAndUpdateCompilation(compilation, out var outputCompilation, out var diagnostics);

@@ -9,19 +9,19 @@ namespace CSteroid.Generator.Shared
 {
     public static class AttributeFormatter
     {
-        public static bool IsDataAnnotation(AttributeData attr)
+        public static bool IsDataAnnotation(AttributeSpec attr)
         {
-            return attr.AttributeClass?.ContainingNamespace?.ToDisplayString() == "System.ComponentModel.DataAnnotations";
+            return attr.Namespace == "System.ComponentModel.DataAnnotations";
         }
 
-        public static bool IsSchemaAnnotation(AttributeData attr)
+        public static bool IsSchemaAnnotation(AttributeSpec attr)
         {
-            return attr.AttributeClass?.ContainingNamespace?.ToDisplayString() == "System.ComponentModel.DataAnnotations.Schema";
+            return attr.Namespace == "System.ComponentModel.DataAnnotations.Schema";
         }
 
-        public static bool IsColumnAnnotation(AttributeData attr)
+        public static bool IsColumnAnnotation(AttributeSpec attr)
         {
-            return attr.AttributeClass?.Name == "ColumnAttribute";
+            return attr.Name == "ColumnAttribute";
         }
 
         public static string FormatAttribute(AttributeData attr)
@@ -30,10 +30,7 @@ namespace CSteroid.Generator.Shared
         }
 
         /// <summary>
-        /// Emits the attribute with a global:: qualified class name. Used by generic
-        /// attribute forwarding, where the generated file has no using for the attribute's
-        /// namespace (unlike the whitelisted DataAnnotations/schema passes, which emit a
-        /// matching using directive).
+        /// Emits the attribute with a global:: qualified class name for generic forwarding.
         /// </summary>
         public static string FormatAttributeFullyQualified(AttributeData attr)
         {
@@ -52,16 +49,11 @@ namespace CSteroid.Generator.Shared
             sb.Append(attrName ?? "Unknown");
 
             var args = new List<string>();
-
             foreach (var arg in attr.ConstructorArguments)
-            {
                 args.Add(FormatTypedConstant(arg));
-            }
 
             foreach (var named in attr.NamedArguments.OrderBy(n => n.Key, StringComparer.Ordinal))
-            {
                 args.Add($"{named.Key} = {FormatTypedConstant(named.Value)}");
-            }
 
             if (args.Count > 0)
             {
@@ -82,28 +74,13 @@ namespace CSteroid.Generator.Shared
             switch (constant.Kind)
             {
                 case TypedConstantKind.Primitive:
-                    return constant.Value switch
-                    {
-                        string s => $"\"{EscapeString(s)}\"",
-                        char c => $"'{EscapeChar(c)}'",
-                        bool b => b ? "true" : "false",
-                        float f => $"{f}f",
-                        double d => $"{d}d",
-                        decimal m => $"{m}m",
-                        long l => $"{l}L",
-                        ulong ul => $"{ul}UL",
-                        uint ui => $"{ui}u",
-                        _ => constant.Value?.ToString() ?? "null"
-                    };
+                    return FormatLiteral(constant.Value);
                 case TypedConstantKind.Array:
-                    if (constant.IsNull)
-                        return "null";
                     var values = constant.Values.Select(FormatTypedConstant);
                     return $"new[] {{ {string.Join(", ", values)} }}";
                 case TypedConstantKind.Enum:
-                    // Fully qualified: emitted attribute text must resolve in files that have
-                    // no using for the attribute's (or enum's) namespace. Roslyn gives the
-                    // underlying integral value in .Value, so resolve the field name first.
+                    // Roslyn stores the underlying integral value. Resolve the field name so
+                    // emitted attributes remain readable and fully qualified.
                     var enumType = constant.Type?.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
                     var enumValue = constant.Value;
                     var enumMember = constant.Type?.GetMembers()
@@ -118,11 +95,14 @@ namespace CSteroid.Generator.Shared
             }
         }
 
-        public static object GetAttributeConstructorArgument(AttributeData attr, int index)
+        public static AttributeArgumentSpec GetAttributeConstructorArgument(AttributeSpec attr, int index)
         {
-            if (attr.ConstructorArguments.Length > index)
-                return attr.ConstructorArguments[index].Value;
-            return null;
+            return index < attr.ConstructorArguments.Count ? attr.ConstructorArguments[index] : null;
+        }
+
+        public static AttributeArgumentSpec GetAttributeNamedArgument(AttributeSpec attr, string name)
+        {
+            return attr.NamedArguments.FirstOrDefault(n => n.Name == name)?.Value;
         }
 
         public static object GetAttributeNamedArgument(AttributeData attr, string name)

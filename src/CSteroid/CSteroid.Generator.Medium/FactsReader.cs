@@ -88,11 +88,17 @@ namespace CSteroid.Generator.Medium
                 1,
                 out _,
                 out var lifetimeLocation));
+            var order = ReadNamedInt32(
+                symbol,
+                contracts.MessageHandlerAttribute,
+                "Order",
+                0);
             return new HandlerDeclarationModel(
                 CreateTypeRef(symbol),
                 ReadServiceShape(symbol),
                 lifetime,
                 lifetimeLocation,
+                order,
                 new EquatableArray<HandlerRouteModel>(routes.ToImmutable()),
                 IsAccessibleType(symbol, compilation.Assembly),
                 GetSymbolLocation(symbol, symbol));

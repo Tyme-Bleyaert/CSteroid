@@ -18,6 +18,7 @@ namespace CSteroid.Generator.Medium
         internal const string StreamSenderMetadataName = "CSteroid.Medium.IStreamSender";
         internal const string PublisherMetadataName = "CSteroid.Medium.IPublisher";
         internal const string HandlerLifetimeAttributeMetadataName = "CSteroid.Medium.HandlerLifetimeAttribute";
+        internal const string MessageHandlerAttributeMetadataName = "CSteroid.Medium.MessageHandlerAttribute";
         internal const string BehaviorAttributeMetadataName = "CSteroid.Medium.MediumBehaviorAttribute";
         internal const string PipelineBehaviorMetadataName = "CSteroid.Medium.IPipelineBehavior`1";
         internal const string PipelineBehaviorOfTMetadataName = "CSteroid.Medium.IPipelineBehavior`2";
@@ -40,6 +41,7 @@ namespace CSteroid.Generator.Medium
             StreamSender = compilation.GetTypeByMetadataName(StreamSenderMetadataName)!;
             Publisher = compilation.GetTypeByMetadataName(PublisherMetadataName)!;
             HandlerLifetimeAttribute = compilation.GetTypeByMetadataName(HandlerLifetimeAttributeMetadataName);
+            MessageHandlerAttribute = compilation.GetTypeByMetadataName(MessageHandlerAttributeMetadataName);
             BehaviorAttribute = compilation.GetTypeByMetadataName(BehaviorAttributeMetadataName);
             PipelineBehavior = compilation.GetTypeByMetadataName(PipelineBehaviorMetadataName);
             PipelineBehaviorOfT = compilation.GetTypeByMetadataName(PipelineBehaviorOfTMetadataName);
@@ -61,6 +63,7 @@ namespace CSteroid.Generator.Medium
         internal INamedTypeSymbol StreamSender { get; }
         internal INamedTypeSymbol Publisher { get; }
         internal INamedTypeSymbol? HandlerLifetimeAttribute { get; }
+        internal INamedTypeSymbol? MessageHandlerAttribute { get; }
         internal INamedTypeSymbol? BehaviorAttribute { get; }
         internal INamedTypeSymbol? PipelineBehavior { get; }
         internal INamedTypeSymbol? PipelineBehaviorOfT { get; }
