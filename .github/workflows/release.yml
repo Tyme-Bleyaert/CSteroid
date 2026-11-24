@@ -62,7 +62,6 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
-            11.0.x
             10.0.x
 
       - name: Restore
@@ -107,7 +106,7 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
-            11.0.x
+            10.0.x
 
       - name: Push to NuGet.org
         env:

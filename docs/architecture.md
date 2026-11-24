@@ -48,10 +48,8 @@ For the essentials (stack, commands, rules), see `AGENTS.md`.
   (`<OutputItemType>Analyzer</OutputItemType>`) and are marked **packable** for
   NuGet distribution. Medium instead packs its nonpackable generator and
   analyzer through the `CSteroid.Medium` runtime project.
-* Build SDK: .NET 11.0.100. Generator and code-fix assemblies require a Roslyn
-  5.12.0 or newer host.
-* Roslyn packages: `Microsoft.CodeAnalysis.CSharp` 5.12.0,
-  `Microsoft.CodeAnalysis.Analyzers` 5.12.0.
+* Roslyn packages: `Microsoft.CodeAnalysis.CSharp` 4.10.0,
+  `Microsoft.CodeAnalysis.Analyzers` 3.3.4.
 
 ## How the generators work
 
