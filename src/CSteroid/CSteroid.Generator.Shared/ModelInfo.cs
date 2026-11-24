@@ -239,21 +239,18 @@ namespace CSteroid.Generator.Shared
             EquatableArray<ModelInfo> models,
             EquatableArray<ModelInfo> mergedModels,
             GeneratorConfigSpec config,
-            bool foundReferencedInterfaces,
-            bool canEmitEfCoreConfiguration)
+            bool foundReferencedInterfaces)
         {
             Models = models;
             MergedModels = mergedModels;
             Config = config;
             FoundReferencedInterfaces = foundReferencedInterfaces;
-            CanEmitEfCoreConfiguration = canEmitEfCoreConfiguration;
         }
 
         public EquatableArray<ModelInfo> Models { get; }
         public EquatableArray<ModelInfo> MergedModels { get; }
         public GeneratorConfigSpec Config { get; }
         public bool FoundReferencedInterfaces { get; }
-        public bool CanEmitEfCoreConfiguration { get; }
     }
 
     internal sealed record CompilationSpec
@@ -261,19 +258,16 @@ namespace CSteroid.Generator.Shared
         public CompilationSpec(
             EquatableArray<InterfaceSpec> referencedInterfaces,
             EquatableArray<string> resolvableModelTypes,
-            GeneratorConfigSpec config,
-            bool canEmitEfCoreConfiguration)
+            GeneratorConfigSpec config)
         {
             ReferencedInterfaces = referencedInterfaces;
             ResolvableModelTypes = resolvableModelTypes;
             Config = config;
-            CanEmitEfCoreConfiguration = canEmitEfCoreConfiguration;
         }
 
         public EquatableArray<InterfaceSpec> ReferencedInterfaces { get; }
         public EquatableArray<string> ResolvableModelTypes { get; }
         public GeneratorConfigSpec Config { get; }
-        public bool CanEmitEfCoreConfiguration { get; }
     }
 
     internal sealed record InterfaceSpec

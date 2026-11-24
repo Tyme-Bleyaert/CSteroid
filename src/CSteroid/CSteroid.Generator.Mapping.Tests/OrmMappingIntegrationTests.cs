@@ -65,6 +65,9 @@ public interface ISecondDefinition
             Assert.Contains("public int Id { get; set; }", model);
             Assert.Contains("public string Name { get; set; }", model);
 
+            var castOperators = GeneratorTestHarness.GetGeneratedSource(compilation, "CSteroidCastOperators.g.cs");
+            Assert.Equal(2, castOperators.Split(new[] { "public partial class " }, StringSplitOptions.None).Length - 1);
+
             var assembly = GeneratorTestHarness.EmitAndLoad(compilation);
             var userType = assembly.GetType("CSteroid.Generated.Models.User");
             var dtoType = assembly.GetType("CSteroid.Generated.Models.UserDto");

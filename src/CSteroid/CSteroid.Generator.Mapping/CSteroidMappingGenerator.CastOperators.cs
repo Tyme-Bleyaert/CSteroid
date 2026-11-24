@@ -49,7 +49,9 @@ namespace CSteroid.Generator.Mapping
 
                         // The destination type must be nameable here: generated locally or by
                         // a referenced project (metadata-lib mode).
-                        if (hasCast && policy.IsResolvable(dst))
+                        if (hasCast
+                            && policy.IsResolvable(dst)
+                            && emittedOperators.Add($"{GetModelIdentity(src)}->{GetModelIdentity(dst)}"))
                         {
                             destinations.Add(dst);
                         }
@@ -86,9 +88,6 @@ namespace CSteroid.Generator.Mapping
                         string opKeyword = isImplicit ? "implicit" : "explicit";
 
                         var commonProps = GetCommonProperties(src, dst);
-
-                        if (!emittedOperators.Add($"{GetModelIdentity(src)}->{GetModelIdentity(dst)}"))
-                            continue;
 
                         string invocation;
                         if (!NeedsMapperClass(src, dst))

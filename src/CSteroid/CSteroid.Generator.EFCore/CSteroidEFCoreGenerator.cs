@@ -14,15 +14,21 @@ namespace CSteroid.Generator.EFCore
     {
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
-            context.RegisterSourceOutput(InterfaceDiscovery.Register(context), Execute);
+            var source = InterfaceDiscovery.Register(context);
+            var canEmitConfiguration = context.CompilationProvider
+                .Select(static (compilation, _) => EfCoreConfigurationBuilder.CanEmit(compilation));
+
+            context.RegisterSourceOutput(
+                source.Combine(canEmitConfiguration),
+                static (spc, input) => Execute(spc, input.Left, input.Right));
         }
 
-        private static void Execute(SourceProductionContext spc, GenerationSpec source)
+        private static void Execute(SourceProductionContext spc, GenerationSpec source, bool canEmitConfiguration)
         {
-            InterfaceDiscovery.ExecuteWithErrorBoundary(spc, () => ExecuteCore(spc, source));
+            InterfaceDiscovery.ExecuteWithErrorBoundary(spc, () => ExecuteCore(spc, source, canEmitConfiguration));
         }
 
-        private static void ExecuteCore(SourceProductionContext spc, GenerationSpec source)
+        private static void ExecuteCore(SourceProductionContext spc, GenerationSpec source, bool canEmitConfiguration)
         {
             if (source.Models.Count == 0)
                 return;
@@ -41,7 +47,7 @@ namespace CSteroid.Generator.EFCore
                 var modelSource = ModelSourceBuilder.GenerateModel(info, targetNames);
                 spc.AddSource(GetHintPath(info, GetFileName(info.Target, fileNamingConvention)), ToSourceText(modelSource));
 
-                if (source.CanEmitEfCoreConfiguration)
+                if (canEmitConfiguration)
                 {
                     var configurationSource = EfCoreConfigurationBuilder.GenerateConfiguration(info);
                     spc.AddSource(EfCoreConfigurationBuilder.GetConfigurationHintPath(info), ToSourceText(configurationSource));

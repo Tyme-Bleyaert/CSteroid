@@ -63,15 +63,10 @@ namespace CSteroid.Generator.Shared
                 validationNamespace,
                 mappingNamespace,
                 new EquatableArray<string>(generateOnlyNamespaces.OrderBy(ns => ns, StringComparer.Ordinal)));
-            var canEmitEfCoreConfiguration =
-                compilation.GetTypeByMetadataName("Microsoft.EntityFrameworkCore.IEntityTypeConfiguration`1") is not null
-                && compilation.GetTypeByMetadataName("Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder`1") is not null;
-
             return new CompilationSpec(
                 new EquatableArray<InterfaceSpec>(referencedInterfaces),
                 new EquatableArray<string>(resolvableModelTypes),
-                config,
-                canEmitEfCoreConfiguration);
+                config);
         }
 
         private static GenerationSpec BuildGenerationSpec(
@@ -110,8 +105,7 @@ namespace CSteroid.Generator.Shared
                 new EquatableArray<ModelInfo>(models),
                 new EquatableArray<ModelInfo>(ModelInfoFactory.MergeModels(models)),
                 compilation.Config,
-                foundReferencedInterfaces,
-                compilation.CanEmitEfCoreConfiguration);
+                foundReferencedInterfaces);
         }
 
         public static void ExecuteWithErrorBoundary(SourceProductionContext spc, Action core)

@@ -18,6 +18,11 @@ namespace CSteroid.Generator.EFCore
     {
         private const string ConfigurationNamespace = "CSteroid.Generated.EFCore";
 
+        public static bool CanEmit(Compilation compilation)
+        {
+            return compilation.GetTypeByMetadataName("Microsoft.EntityFrameworkCore.IEntityTypeConfiguration`1") is not null
+                && compilation.GetTypeByMetadataName("Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder`1") is not null;
+        }
 
         public static string GenerateConfiguration(ModelInfo info)
         {
