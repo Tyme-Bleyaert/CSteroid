@@ -15,6 +15,13 @@ namespace CSteroid.Medium
         public ServiceLifetime Lifetime { get; }
     }
 
+    /// <summary>Sets the publication order of a message handler. Lower values run first.</summary>
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+    public sealed class MessageHandlerAttribute : Attribute
+    {
+        public int Order { get; set; }
+    }
+
     /// <summary>Marks the assembly that owns generated mediator dispatch and registration.</summary>
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
     public sealed class MediumCompositionRootAttribute : Attribute

@@ -50,9 +50,7 @@ namespace CSteroid.Benchmarks
                 AssertThrows<InvalidOperationException>(
                     () => Read(commandSend(new UnknownMediumCommand(), default)),
                     "Medium unknown command");
-                AssertThrows<InvalidOperationException>(
-                    () => Read(publish(new UnknownMediumEvent(), default)),
-                    "Medium unknown Publish");
+                Read(publish(new UnknownMediumEvent(), default));
             }
             finally
             {

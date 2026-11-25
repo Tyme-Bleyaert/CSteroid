@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Linq;
 using Microsoft.CodeAnalysis;
 using CSteroid.Generator.Shared;
@@ -15,31 +14,34 @@ namespace CSteroid.Generator.EFCore
     {
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
-            context.RegisterSourceOutput(InterfaceDiscovery.Register(context), Execute);
+            var source = InterfaceDiscovery.Register(context);
+            var canEmitConfiguration = context.CompilationProvider
+                .Select(static (compilation, _) => EfCoreConfigurationBuilder.CanEmit(compilation));
+
+            context.RegisterSourceOutput(
+                source.Combine(canEmitConfiguration),
+                static (spc, input) => Execute(spc, input.Left, input.Right));
         }
 
-        private static void Execute(SourceProductionContext spc, (ImmutableArray<INamedTypeSymbol> Symbols, Compilation Compilation) source)
+        private static void Execute(SourceProductionContext spc, GenerationSpec source, bool canEmitConfiguration)
         {
-            InterfaceDiscovery.ExecuteWithErrorBoundary(spc, () => ExecuteCore(spc, source));
+            InterfaceDiscovery.ExecuteWithErrorBoundary(spc, () => ExecuteCore(spc, source, canEmitConfiguration));
         }
 
-        private static void ExecuteCore(SourceProductionContext spc, (ImmutableArray<INamedTypeSymbol> Symbols, Compilation Compilation) source)
+        private static void ExecuteCore(SourceProductionContext spc, GenerationSpec source, bool canEmitConfiguration)
         {
-            var modelInfos = InterfaceDiscovery.BuildModelInfos(spc, source.Symbols, source.Compilation);
-            if (modelInfos.Count == 0)
+            if (source.Models.Count == 0)
                 return;
 
-            var fileNamingConvention = GetFileNamingConvention(source.Compilation.Assembly);
-            var policy = EmissionPolicy.For(source.Compilation);
+            ConfigDiagnostics.Report(spc, source);
+            var modelInfos = source.MergedModels;
+            var fileNamingConvention = source.Config.FileNamingConvention;
+            var policy = new EmissionPolicy(source.Config.GenerateOnlyNamespaces);
             var targetNames = new HashSet<string>(modelInfos.Select(m => m.Target), StringComparer.Ordinal);
-            var canEmitConfiguration = EfCoreConfigurationBuilder.CanEmit(source.Compilation);
 
             foreach (var info in modelInfos.OrderBy(m => m.Target, StringComparer.Ordinal))
             {
-                if (info.OrmTarget != OrmTargetEFCore)
-                    continue;
-
-                if (!policy.IsLocal(info))
+                if (info.OrmTarget != OrmTargetEFCore || !policy.IsLocal(info))
                     continue;
 
                 var modelSource = ModelSourceBuilder.GenerateModel(info, targetNames);

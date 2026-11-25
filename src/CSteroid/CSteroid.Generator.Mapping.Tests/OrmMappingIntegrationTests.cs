@@ -1,0 +1,140 @@
+using System;
+using System.Reflection;
+using Microsoft.CodeAnalysis;
+using CSteroid.Generator.CosmosDB;
+using CSteroid.Generator.Dapper;
+using CSteroid.Generator.EFCore;
+using CSteroid.Generator.Generators;
+using CSteroid.Generator.Mapping;
+using CSteroid.Generator.MongoDB;
+using CSteroid.Generator.PostgreSQL;
+using CSteroid.Generator.Testing;
+using CSteroid.Generator.Validation;
+using Xunit;
+
+namespace CSteroid.Tests
+{
+    public class OrmMappingIntegrationTests
+    {
+        [Fact]
+        public void EfCoreEntity_SupportsObjectInitializerMappingAndCasts()
+        {
+            AssertOrmMapping(new CSteroidEFCoreGenerator(), "EFCore");
+        }
+
+        [Fact]
+        public void DapperEntity_SupportsObjectInitializerMappingAndCasts()
+        {
+            AssertOrmMapping(new CSteroidDapperGenerator(), "Dapper");
+        }
+
+        [Fact]
+        public void DuplicateTargets_MergeAcrossInterfaces_WithAllGenerators()
+        {
+            var compilation = GeneratorTestHarness.RunGenerator(
+                new IIncrementalGenerator[]
+                {
+                    new CSteroidGenerator(),
+                    new CSteroidMappingGenerator(),
+                    new CSteroidValidationGenerator(),
+                    new CSteroidEFCoreGenerator(),
+                    new CSteroidDapperGenerator(),
+                    new CSteroidCosmosDBGenerator(),
+                    new CSteroidMongoDBGenerator(),
+                    new CSteroidPostgreSQLGenerator()
+                },
+                @"
+using CSteroid;
+
+[CanonicalModel(""User"", Simple = true, MappingTypes = MappingTypes.ExtensionMethod | MappingTypes.ImplicitCast, ValidationType = ValidationType.Custom)]
+[CanonicalModel(""UserDto"", Simple = true, MappingTypes = MappingTypes.ExtensionMethod | MappingTypes.ImplicitCast)]
+public interface IFirstDefinition
+{
+    int Id { get; set; }
+}
+
+[CanonicalModel(""User"", Simple = true, MappingTypes = MappingTypes.ExtensionMethod | MappingTypes.ImplicitCast, ValidationType = ValidationType.Custom)]
+[CanonicalModel(""UserDto"", Simple = true, MappingTypes = MappingTypes.ExtensionMethod | MappingTypes.ImplicitCast)]
+public interface ISecondDefinition
+{
+    string Name { get; set; }
+}
+");
+
+            var model = GeneratorTestHarness.GetGeneratedSource(compilation, "User.g.cs");
+            Assert.Contains("public int Id { get; set; }", model);
+            Assert.Contains("public string Name { get; set; }", model);
+
+            var castOperators = GeneratorTestHarness.GetGeneratedSource(compilation, "CSteroidCastOperators.g.cs");
+            Assert.Equal(2, castOperators.Split(new[] { "public partial class " }, StringSplitOptions.None).Length - 1);
+
+            var assembly = GeneratorTestHarness.EmitAndLoad(compilation);
+            var userType = assembly.GetType("CSteroid.Generated.Models.User");
+            var dtoType = assembly.GetType("CSteroid.Generated.Models.UserDto");
+            var user = Activator.CreateInstance(userType!);
+            userType!.GetProperty("Id")!.SetValue(user, 17);
+            userType.GetProperty("Name")!.SetValue(user, "Ada");
+
+            var extensions = assembly.GetType("CSteroid.Generated.Mappings.MappingExtensions");
+            var mapToDto = extensions!.GetMethod("MapToUserDto", BindingFlags.Static | BindingFlags.NonPublic);
+            var dto = mapToDto!.Invoke(null, new[] { user });
+            Assert.Equal(17, dtoType!.GetProperty("Id")!.GetValue(dto));
+            Assert.Equal("Ada", dtoType.GetProperty("Name")!.GetValue(dto));
+
+            var castToDto = userType.GetMethod("op_Implicit", BindingFlags.Static | BindingFlags.Public);
+            var castDto = castToDto!.Invoke(null, new[] { user });
+            Assert.Equal(17, dtoType.GetProperty("Id")!.GetValue(castDto));
+            Assert.Equal("Ada", dtoType.GetProperty("Name")!.GetValue(castDto));
+
+            var mapToUser = extensions.GetMethod("MapToUser", BindingFlags.Static | BindingFlags.NonPublic);
+            var mappedBack = mapToUser!.Invoke(null, new[] { dto });
+            Assert.Equal(17, userType.GetProperty("Id")!.GetValue(mappedBack));
+            Assert.Equal("Ada", userType.GetProperty("Name")!.GetValue(mappedBack));
+        }
+
+        private static void AssertOrmMapping(IIncrementalGenerator ormGenerator, string ormTarget)
+        {
+            var source = $@"
+#nullable enable
+using CSteroid;
+
+[CanonicalModel(""User"", MappingTypes: MappingTypes.ExtensionMethod | MappingTypes.ImplicitCast)]
+[CanonicalModel(""UserDto"", MappingTypes: MappingTypes.ExtensionMethod | MappingTypes.ImplicitCast)]
+[OrmTarget(OrmTarget.{ormTarget}, Model = ""User"")]
+public interface IUserDefinition
+{{
+    int Id {{ get; set; }}
+    string? Name {{ get; set; }}
+}}
+";
+            var compilation = GeneratorTestHarness.RunGenerator(
+                new IIncrementalGenerator[] { new CSteroidGenerator(), new CSteroidMappingGenerator(), ormGenerator },
+                source);
+
+            var model = GeneratorTestHarness.GetGeneratedSource(compilation, "User.g.cs");
+            Assert.StartsWith("// <auto-generated />\n#nullable enable", model);
+            Assert.Contains("public string? Name { get; set; }", model);
+            Assert.Contains("public User() { }", model);
+            if (ormTarget == "Dapper")
+                Assert.Contains("public User(int id, string? name)", model);
+
+            var assembly = GeneratorTestHarness.EmitAndLoad(compilation);
+            var userType = assembly.GetType("CSteroid.Generated.Models.User");
+            var dtoType = assembly.GetType("CSteroid.Generated.Models.UserDto");
+            var dto = Activator.CreateInstance(dtoType!);
+            dtoType!.GetProperty("Id")!.SetValue(dto, 42);
+            dtoType.GetProperty("Name")!.SetValue(dto, "Ada");
+
+            var extensions = assembly.GetType("CSteroid.Generated.Mappings.MappingExtensions");
+            var mapToUser = extensions!.GetMethod("MapToUser", BindingFlags.Static | BindingFlags.NonPublic);
+            var user = mapToUser!.Invoke(null, new[] { dto });
+            Assert.Equal(42, userType!.GetProperty("Id")!.GetValue(user));
+            Assert.Equal("Ada", userType.GetProperty("Name")!.GetValue(user));
+
+            var castToUser = dtoType.GetMethod("op_Implicit", BindingFlags.Static | BindingFlags.Public);
+            var castUser = castToUser!.Invoke(null, new[] { dto });
+            Assert.Equal(42, userType.GetProperty("Id")!.GetValue(castUser));
+            Assert.Equal("Ada", userType.GetProperty("Name")!.GetValue(castUser));
+        }
+    }
+}

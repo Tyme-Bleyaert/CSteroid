@@ -1,71 +1,111 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Linq;
+using System.Threading;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-using static CSteroid.Generator.Shared.ModelInfoFactory;
+using static CSteroid.Generator.Shared.OutputConventions;
 
 namespace CSteroid.Generator.Shared
 {
     public static class InterfaceDiscovery
     {
-        public static IncrementalValueProvider<(ImmutableArray<INamedTypeSymbol> Symbols, Compilation Compilation)> Register(IncrementalGeneratorInitializationContext context)
+        public const string InterfaceDiscoveryTrackingName = "CSteroid.Interface.Discovery";
+        public const string CompilationProjectionTrackingName = "CSteroid.Compilation.Projection";
+        public const string GenerationPlanningTrackingName = "CSteroid.Generation.Planning";
+
+        public static IncrementalValueProvider<GenerationSpec> Register(IncrementalGeneratorInitializationContext context)
         {
-            var interfaceSymbols = context.SyntaxProvider
-                .CreateSyntaxProvider(
-                    predicate: static (node, _) => node is InterfaceDeclarationSyntax ids && ids.AttributeLists.Count > 0,
-                    transform: static (ctx, ct) => ctx.SemanticModel.GetDeclaredSymbol((InterfaceDeclarationSyntax)ctx.Node, ct) as INamedTypeSymbol)
-                .Where(static s => s is not null)
-                .Select(static (s, _) => s!)
+            var interfaces = context.SyntaxProvider
+                .ForAttributeWithMetadataName(
+                    "CSteroid.CanonicalModelAttribute",
+                    predicate: static (node, _) => node is InterfaceDeclarationSyntax,
+                    transform: static (ctx, ct) => ModelInfoFactory.BuildInterfaceInfo(
+                        (INamedTypeSymbol)ctx.TargetSymbol,
+                        ctx.Attributes,
+                        ct))
+                .WithTrackingName(InterfaceDiscoveryTrackingName)
                 .Collect();
 
-            return interfaceSymbols.Combine(context.CompilationProvider);
+            var compilationSpec = interfaces
+                .Combine(context.CompilationProvider)
+                .Select(static (input, ct) => BuildCompilationSpec(input.Left, input.Right, ct))
+                .WithTrackingName(CompilationProjectionTrackingName);
+
+            return interfaces
+                .Combine(compilationSpec)
+                .Select(static (input, ct) => BuildGenerationSpec(input.Left, input.Right, ct))
+                .WithTrackingName(GenerationPlanningTrackingName);
         }
 
-        public static List<ModelInfo> BuildModelInfos(SourceProductionContext spc, ImmutableArray<INamedTypeSymbol> symbols, Compilation compilation)
+        private static CompilationSpec BuildCompilationSpec(
+            IReadOnlyList<InterfaceSpec> sourceInterfaces,
+            Compilation compilation,
+            CancellationToken cancellationToken)
         {
-            var allSymbols = ReferencedInterfaceDiscovery.MergeWithReferenced(compilation, symbols, out var foundReferencedInterfaces);
-            var canonicalAttrSymbol = compilation.GetTypeByMetadataName("CSteroid.CanonicalModelAttribute");
-            var excludeAttrSymbol = compilation.GetTypeByMetadataName("CSteroid.ExcludeFromGenerationAttribute");
-
-            var modelInfos = new List<ModelInfo>();
-
-            if (canonicalAttrSymbol is null)
-                return modelInfos;
-
-            foreach (var symbol in allSymbols.OrderBy(s => s.ToDisplayString(), StringComparer.Ordinal))
+            cancellationToken.ThrowIfCancellationRequested();
+            var referencedInterfaces = ReferencedInterfaceDiscovery.ReadReferenced(compilation, cancellationToken);
+            var modelTypeNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var interfaceSpec in sourceInterfaces.Concat(referencedInterfaces))
             {
-                var allAttrs = symbol.GetAttributes();
-                var attrs = allAttrs
-                    .Where(a => a.AttributeClass is not null && a.AttributeClass.ToDisplayString() == canonicalAttrSymbol.ToDisplayString())
-                    .ToList();
+                foreach (var model in interfaceSpec.Models)
+                    modelTypeNames.Add($"{GetModelNamespace(model)}.{model.Target}");
+            }
 
-                if (attrs.Count == 0)
+            var resolvableModelTypes = modelTypeNames
+                .Where(name => compilation.GetTypeByMetadataName(name) is not null)
+                .OrderBy(name => name, StringComparer.Ordinal)
+                .ToArray();
+            var (validationNamespace, mappingNamespace) = GetOutputNamespaces(compilation.Assembly);
+            var generateOnlyNamespaces = GetGenerateOnlyNamespaces(compilation.Assembly) ?? Array.Empty<string>();
+            var config = new GeneratorConfigSpec(
+                GetFileNamingConvention(compilation.Assembly),
+                validationNamespace,
+                mappingNamespace,
+                new EquatableArray<string>(generateOnlyNamespaces.OrderBy(ns => ns, StringComparer.Ordinal)));
+            return new CompilationSpec(
+                new EquatableArray<InterfaceSpec>(referencedInterfaces),
+                new EquatableArray<string>(resolvableModelTypes),
+                config);
+        }
+
+        private static GenerationSpec BuildGenerationSpec(
+            IReadOnlyList<InterfaceSpec> sourceInterfaces,
+            CompilationSpec compilation,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var merged = new Dictionary<string, InterfaceSpec>(StringComparer.Ordinal);
+            foreach (var interfaceSpec in sourceInterfaces)
+                merged[interfaceSpec.Key] = interfaceSpec;
+
+            var foundReferencedInterfaces = false;
+            foreach (var referenced in compilation.ReferencedInterfaces)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!merged.ContainsKey(referenced.Key))
                 {
-                    var attrClassNames = string.Join(", ", allAttrs.Select(a => a.AttributeClass?.ToDisplayString() ?? "null"));
-                    var msg = string.Format("Interface {0} has attributes: {1}. Expected: {2}", symbol.Name, attrClassNames, canonicalAttrSymbol.ToDisplayString());
-                    var desc = new DiagnosticDescriptor("CSG001", "Debug", msg, "CSteroid", DiagnosticSeverity.Warning, true);
-                    spc.ReportDiagnostic(Diagnostic.Create(desc, symbol.Locations.FirstOrDefault()));
-                    continue;
-                }
-
-                var allProperties = GetAllProperties(symbol).OrderBy(p => p.Name, StringComparer.Ordinal).ToList();
-                var ormAttrs = allAttrs
-                    .Where(a => a.AttributeClass?.ToDisplayString() == "CSteroid.OrmTargetAttribute")
-                    .ToList();
-
-                foreach (var attr in attrs.OrderBy(a => GetTarget(a) ?? symbol.Name, StringComparer.Ordinal))
-                {
-                    var info = BuildModelInfo(symbol, attr, allProperties, excludeAttrSymbol, ormAttrs);
-                    if (info is not null)
-                        modelInfos.Add(info);
+                    merged.Add(referenced.Key, referenced);
+                    foundReferencedInterfaces = true;
                 }
             }
 
-            ConfigDiagnostics.Report(spc, compilation, modelInfos, foundReferencedInterfaces);
+            var models = new List<ModelInfo>();
+            foreach (var interfaceSpec in merged.Values.OrderBy(i => i.Key, StringComparer.Ordinal))
+            {
+                foreach (var model in interfaceSpec.Models)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var metadataName = $"{GetModelNamespace(model)}.{model.Target}";
+                    models.Add(model.WithResolution(compilation.ResolvableModelTypes.Contains(metadataName, StringComparer.Ordinal)));
+                }
+            }
 
-            return modelInfos;
+            return new GenerationSpec(
+                new EquatableArray<ModelInfo>(models),
+                new EquatableArray<ModelInfo>(ModelInfoFactory.MergeModels(models)),
+                compilation.Config,
+                foundReferencedInterfaces);
         }
 
         public static void ExecuteWithErrorBoundary(SourceProductionContext spc, Action core)
@@ -74,7 +114,11 @@ namespace CSteroid.Generator.Shared
             {
                 core();
             }
-            catch (System.Exception ex)
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
             {
                 var desc = new DiagnosticDescriptor("CSG999", "Generator Error", ex.ToString(), "CSteroid", DiagnosticSeverity.Error, true);
                 spc.ReportDiagnostic(Diagnostic.Create(desc, Location.None));

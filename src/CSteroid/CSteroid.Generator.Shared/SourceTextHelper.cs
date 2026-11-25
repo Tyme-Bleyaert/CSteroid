@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -37,18 +38,18 @@ namespace CSteroid.Generator.Shared
             if (value is bool b)
                 return b ? "true" : "false";
             if (value is float f)
-                return $"{f}f";
+                return f.ToString("R", CultureInfo.InvariantCulture) + "f";
             if (value is double d)
-                return $"{d}d";
+                return d.ToString("R", CultureInfo.InvariantCulture) + "d";
             if (value is decimal m)
-                return $"{m}m";
+                return m.ToString(CultureInfo.InvariantCulture) + "m";
             if (value is long l)
-                return $"{l}L";
+                return l.ToString(CultureInfo.InvariantCulture) + "L";
             if (value is ulong ul)
-                return $"{ul}UL";
+                return ul.ToString(CultureInfo.InvariantCulture) + "UL";
             if (value is uint ui)
-                return $"{ui}u";
-            return value.ToString() ?? "null";
+                return ui.ToString(CultureInfo.InvariantCulture) + "u";
+            return Convert.ToString(value, CultureInfo.InvariantCulture) ?? "null";
         }
 
         public static string ToCamelCase(string value)

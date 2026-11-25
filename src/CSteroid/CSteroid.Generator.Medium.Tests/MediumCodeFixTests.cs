@@ -232,7 +232,7 @@ public class MediumCodeFixTests
     }
 
     [Fact]
-    public async Task PublishHandlerFix_AddsCompilingMessageHandler()
+    public async Task HandlerlessMessagePublish_RequiresNoHandlerFix()
     {
         using var fixture = new Fixture("""
             using System.Threading.Tasks;
@@ -247,38 +247,27 @@ public class MediumCodeFixTests
                 }
             }
             """);
-        var diagnostic = Assert.Single((await fixture.AnalyzeAsync()).Diagnostics, item => item.Id == "CSM018");
-        await fixture.ApplyAsync(Assert.Single(await fixture.GetActionsAsync(diagnostic, new MediumHandlerCodeFixProvider())));
 
-        var output = await fixture.GenerateAndAssertCompilesAsync();
-        Assert.DoesNotContain(await MediumExecution.Analyze(output), item => item.Id == "CSM018");
-        Assert.Contains(
-            "global::CSteroid.Medium.IMessageHandler<global::Events.Notice>",
-            await fixture.PersistentTextAsync());
+        Assert.DoesNotContain((await fixture.AnalyzeAsync()).Diagnostics, item => item.Id == "CSM018");
+        await fixture.GenerateAndAssertCompilesAsync();
     }
 
     [Fact]
-    public async Task PublishHandlerFix_EscapesKeywordNamespace()
+    public async Task CommandPassedToPublish_DoesNotOfferMessageHandlerFix()
     {
         using var fixture = new Fixture("""
             using System.Threading.Tasks;
             using CSteroid.Medium;
             [assembly: MediumCompositionRoot]
-            namespace Sample.@event
+            public sealed class Command : ICommand { }
+            public static class Use
             {
-                public sealed class Notice : IMessage { }
-                public static class Use
-                {
-                    public static ValueTask Call(IPublisher publisher) => publisher.Publish(new Notice());
-                }
+                public static ValueTask Call(IPublisher publisher) => publisher.Publish(new Command());
             }
             """);
         var diagnostic = Assert.Single((await fixture.AnalyzeAsync()).Diagnostics, item => item.Id == "CSM018");
-        await fixture.ApplyAsync(Assert.Single(await fixture.GetActionsAsync(diagnostic, new MediumHandlerCodeFixProvider())));
 
-        var output = await fixture.GenerateAndAssertCompilesAsync();
-        Assert.DoesNotContain(await MediumExecution.Analyze(output), item => item.Id == "CSM018");
-        Assert.Contains("namespace Sample.@event", await fixture.PersistentTextAsync());
+        Assert.Empty(await fixture.GetActionsAsync(diagnostic, new MediumHandlerCodeFixProvider()));
     }
 
     [Fact]
@@ -624,7 +613,7 @@ public class MediumCodeFixTests
     }
 
     [Fact]
-    public async Task ExternalMessages_IncludeProducerManifestGuidance()
+    public async Task ExternalCommandWithoutHandler_IncludesProducerManifestGuidance()
     {
         var producer = MediumTestCompilation.Create("Sample.Application", [], """
             using CSteroid.Medium;
@@ -645,13 +634,11 @@ public class MediumCodeFixTests
             }
             """));
         var diagnostics = (await fixture.AnalyzeAsync()).Diagnostics;
-        Assert.Equal(2, diagnostics.Count(item => item.Id is "CSM001" or "CSM018"));
-        foreach (var diagnostic in diagnostics.Where(item => item.Id is "CSM001" or "CSM018"))
-        {
-            Assert.Contains("Sample.Application", diagnostic.GetMessage());
-            Assert.Contains("references CSteroid.Medium", diagnostic.GetMessage());
-            Assert.Contains("Medium.Manifest.g.cs", diagnostic.GetMessage());
-        }
+        var diagnostic = Assert.Single(diagnostics, item => item.Id == "CSM001");
+        Assert.DoesNotContain(diagnostics, item => item.Id == "CSM018");
+        Assert.Contains("Sample.Application", diagnostic.GetMessage());
+        Assert.Contains("references CSteroid.Medium", diagnostic.GetMessage());
+        Assert.Contains("Medium.Manifest.g.cs", diagnostic.GetMessage());
     }
 
     private static string BehaviorSource(string behaviorName) => $$"""

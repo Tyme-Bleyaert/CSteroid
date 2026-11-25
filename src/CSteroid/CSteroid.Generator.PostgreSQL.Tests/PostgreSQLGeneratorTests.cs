@@ -27,30 +27,11 @@ namespace CSteroid.Tests
             var compilation = RunGenerator(@"
 using CSteroid;
 
-namespace System.ComponentModel.DataAnnotations
-{
-    public class DatabaseGeneratedAttribute : Attribute
-    {
-        public DatabaseGeneratedAttribute(DatabaseGeneratedOption option) { }
-    }
-    public enum DatabaseGeneratedOption { None, Identity, Computed }
-}
-
-namespace System.ComponentModel.DataAnnotations.Schema
-{
-    public class KeyAttribute : Attribute { }
-    public class ColumnAttribute : Attribute
-    {
-        public ColumnAttribute(string name) { }
-        public string TypeName { get; set; }
-    }
-}
-
 [CanonicalModelAttribute(""User"")]
 [OrmTarget(OrmTarget.PostgreSQL)]
 public interface IUserModelDefinition
 {
-    [System.ComponentModel.DataAnnotations.Schema.Key]
+    [System.ComponentModel.DataAnnotations.Key]
     public int Id { get; set; }
     public string FirstName { get; set; }
 }

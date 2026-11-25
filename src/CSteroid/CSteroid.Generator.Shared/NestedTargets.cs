@@ -1,45 +1,25 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Microsoft.CodeAnalysis;
 
 namespace CSteroid.Generator.Shared
 {
     public static class NestedTargets
     {
-        public static bool TryGetNestedTarget(ITypeSymbol type, HashSet<string> targetNames, out string targetName)
+        public static bool TryGetNestedTarget(TypeSpec type, HashSet<string> targetNames, out string targetName)
         {
             targetName = type.Name;
             return targetNames.Contains(targetName);
         }
 
-        public static bool TryGetCollectionElementTarget(ITypeSymbol type, HashSet<string> targetNames, out string elementTarget, out string collectionKind)
+        public static bool TryGetCollectionElementTarget(TypeSpec type, HashSet<string> targetNames, out string elementTarget, out string collectionKind)
         {
-            elementTarget = null;
-            collectionKind = null;
-
-            if (type is IArrayTypeSymbol arrayType)
-            {
-                elementTarget = arrayType.ElementType.Name;
-                collectionKind = "Array";
-                return targetNames.Contains(elementTarget);
-            }
-
-            if (type is INamedTypeSymbol namedType && namedType.IsGenericType)
-            {
-                var definitionName = namedType.OriginalDefinition.Name;
-                if (definitionName is "List" or "IList" or "ICollection" or "IEnumerable" or "HashSet")
-                {
-                    elementTarget = namedType.TypeArguments[0].Name;
-                    collectionKind = definitionName;
-                    return targetNames.Contains(elementTarget);
-                }
-            }
-
-            return false;
+            elementTarget = type.CollectionElementName;
+            collectionKind = type.CollectionKind;
+            return elementTarget is not null && targetNames.Contains(elementTarget);
         }
 
-        public static Dictionary<string, HashSet<string>> BuildNestedTargetGraph(List<IGrouping<ISymbol, ModelInfo>> byInterface, HashSet<string> targetNames)
+        public static Dictionary<string, HashSet<string>> BuildNestedTargetGraph(IEnumerable<IEnumerable<ModelInfo>> byInterface, HashSet<string> targetNames)
         {
             var graph = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
 
@@ -88,7 +68,7 @@ namespace CSteroid.Generator.Shared
             return false;
         }
 
-        public static List<IPropertySymbol> GetCommonProperties(ModelInfo src, ModelInfo dst)
+        public static List<PropertySpec> GetCommonProperties(ModelInfo src, ModelInfo dst)
         {
             var dstNames = new HashSet<string>(dst.Properties.Select(p => p.Name), StringComparer.Ordinal);
             return src.Properties.Where(p => dstNames.Contains(p.Name)).ToList();

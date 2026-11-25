@@ -195,8 +195,8 @@ response types satisfy its contract and generic constraints.
 | Send cardinality | Exactly one valid handler. Missing concrete uses and duplicate declarations are analyzer errors. |
 | Non-response commands | Return non-generic `ValueTask`; response commands cannot be sent through the non-response route. |
 | Events | `IMessageHandler<TMessage>` returns non-generic `ValueTask`; no result-discarding handler form. |
-| Missing event routes | A concrete Publish use with no valid handler is CSM018. An unknown runtime route throws `InvalidOperationException`; no behavior runs without a declared route. |
-| Publish order | Sequential ordinal order by assembly-aware concrete handler identity. |
+| Missing event routes | Publish returns a completed `ValueTask`; no handler or behavior runs without a declared route. |
+| Publish order | Sequential ascending `MessageHandlerAttribute.Order`, then ordinal order by assembly-aware concrete handler identity. |
 | Publish failures | Fail fast; the original fault propagates and later handlers do not run. |
 | Publishing commands | Reject with `ArgumentException`; commands use Send. |
 | Cancellation | Every handler and behavior receives the supplied token. No synthetic cancellation checks. |
@@ -297,6 +297,12 @@ namespace CSteroid.Medium
     {
         public HandlerLifetimeAttribute(ServiceLifetime lifetime);
         public ServiceLifetime Lifetime { get; } // Scoped by default without the attribute.
+    }
+
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
+    public sealed class MessageHandlerAttribute : Attribute
+    {
+        public int Order { get; set; } // 0; lower values publish first.
     }
 
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = false)]
@@ -495,10 +501,10 @@ does not guess through an interface-held variable, type parameter, or arbitrary
 flow. Unknown runtime types retain their runtime guards.
 
 CSM001 applies to concrete recognized Send uses, not every unused command
-declaration. CSM018 applies the same rule to concrete Publish uses, including
-commands passed to Publish, and does not reject unused event declarations.
-Interface-held Send and Publish arguments are not guessed; their runtime guards
-remain necessary. CSM002 and malformed handler/behavior declarations are
+declaration. CSM018 rejects commands passed to Publish. Handlerless messages,
+unused event declarations, and unprovable interface-held Publish arguments are
+valid. Interface-held Send arguments retain their runtime guard. Publish retains
+its null and command guards. CSM002 and malformed handler/behavior declarations are
 reported without a composition root. Imported duplicate commands are diagnosed
 in the marked root, where the complete merged route set is available.
 
@@ -681,11 +687,9 @@ CancellationToken)`. A response command erased to `ICommand` has no non-response
 entry and throws; its result is never discarded.
 
 Publish uses an equivalent delegate accepting `IMessage`. After null and
-`message is ICommand` checks, a missing publish entry throws
-`InvalidOperationException`. A concrete call with no valid handler is normally
-caught earlier by CSM018; the runtime guard covers interface-held and otherwise
-unprovable calls. Dictionary enumeration order is never used for publication
-order.
+command checks, a missing publish entry returns a completed `ValueTask`. No
+behavior runs without a declared route. Dictionary enumeration order is never
+used for publication order.
 
 ### Strongly typed terminal
 
@@ -956,7 +960,7 @@ IDs retired from the host/method architecture are not reused for unrelated rules
 | CSM015 | Error | Duplicate behavior attributes | Duplicate declaration for one behavior type. Exclude the ambiguous set. |
 | CSM016 | Error | Behavior attribute/type | Selected closed behavior is inaccessible or non-DI-constructible. Omit that selection and retain other valid components. |
 | CSM017 | Error | Referenced assembly or root attribute | Unsupported/malformed manifest version or payload. Exclude the affected import. |
-| CSM018 | Error | Concrete recognized Publish use | No valid handler for that concrete event, or a command was passed to Publish. Unused event declarations and unprovable interface-held uses are not diagnosed. |
+| CSM018 | Error | Concrete recognized Publish use | A command or stream command was passed to Publish. Handlerless messages, unused event declarations, and unprovable interface-held uses are not diagnosed. |
 
 CSM003, CSM004, CSM005, CSM007, CSM008, CSM009, and CSM010 are retired:
 partial-host rules, constructor reconstruction, method-signature conventions,

@@ -77,6 +77,65 @@ public class MediumCrossAssemblyTests
     }
 
     [Fact]
+    public async Task RootPreservesExplicitOrderForImportedMessageHandlers()
+    {
+        var producer = Generate("Sample.Application", [], """
+            using System.Threading;
+            using System.Threading.Tasks;
+            using CSteroid.Medium;
+
+            public sealed class ImportedNotice : IMessage { }
+            public static class ProducerState { public static string Log = string.Empty; }
+            [MessageHandler(Order = -10)]
+            public sealed class ZuluImportedHandler : IMessageHandler<ImportedNotice>
+            {
+                public ValueTask Handle(ImportedNotice message, CancellationToken cancellationToken)
+                {
+                    ProducerState.Log += "I";
+                    return default;
+                }
+            }
+            """);
+        var producerImage = MediumExecution.EmitImage(producer);
+        var root = Generate(
+            "Sample.WebApi",
+            [MetadataReference.CreateFromImage(producerImage)],
+            """
+            using System.Threading;
+            using System.Threading.Tasks;
+            using Microsoft.Extensions.DependencyInjection;
+            using CSteroid.Medium;
+
+            [assembly: MediumCompositionRoot]
+
+            public sealed class AlphaLocalHandler : IMessageHandler<ImportedNotice>
+            {
+                public ValueTask Handle(ImportedNotice message, CancellationToken cancellationToken)
+                {
+                    ProducerState.Log += "L";
+                    return default;
+                }
+            }
+            public static class Program
+            {
+                public static async Task<string> Run()
+                {
+                    var services = new ServiceCollection();
+                    services.AddMedium();
+                    using var provider = services.BuildServiceProvider();
+                    using var scope = provider.CreateScope();
+                    await scope.ServiceProvider.GetRequiredService<IPublisher>().Publish(new ImportedNotice());
+                    return ProducerState.Log;
+                }
+            }
+            """);
+
+        Assert.Equal("IL", await MediumExecution.RunProgramAsync<string>(
+            MediumExecution.EmitImage(root),
+            ("Sample.Application", producerImage)));
+    }
+
+    [Fact]
     public async Task DuplicateImportedAndLocalCommand_Reportscsm002AndOmitsOnlyThatRoute()
     {
         var producer = Generate("Sample.Application", [], """

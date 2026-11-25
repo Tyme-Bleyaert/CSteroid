@@ -22,7 +22,7 @@ namespace CSteroid.Tests
         }
 
         [Fact]
-        public void EFCore_GeneratesPrivateParameterlessConstructor()
+        public void EFCore_GeneratesPublicParameterlessConstructor()
         {
             var compilation = RunGenerator(@"
 using CSteroid;
@@ -36,7 +36,7 @@ public interface IUserModelDefinition
 ");
 
             var content = GeneratorTestHarness.GetGeneratedSource(compilation, "User.g.cs");
-            Assert.Contains("private User() { }", content);
+            Assert.Contains("public User() { }", content);
         }
 
         [Fact]
@@ -216,7 +216,7 @@ public interface IUserModelDefinition
         }
 
         [Fact]
-        public void EFCore_RecordDeclarationType_GeneratesPrivateConstructor()
+        public void EFCore_RecordDeclarationType_GeneratesPublicConstructor()
         {
             var compilation = RunGenerator(@"
 using CSteroid;
@@ -231,11 +231,11 @@ public interface IUserModelDefinition
 
             var content = GeneratorTestHarness.GetGeneratedSource(compilation, "User.g.cs");
             Assert.Contains("public partial record User", content);
-            Assert.Contains("private User() { }", content);
+            Assert.Contains("public User() { }", content);
         }
 
         [Fact]
-        public void EFCore_StructDeclarationType_DoesNotGeneratePrivateConstructor()
+        public void EFCore_StructDeclarationType_DoesNotGenerateExplicitConstructor()
         {
             var compilation = RunGenerator(@"
 using CSteroid;
@@ -250,7 +250,7 @@ public interface IUserModelDefinition
 
             var content = GeneratorTestHarness.GetGeneratedSource(compilation, "User.g.cs");
             Assert.Contains("public partial struct User", content);
-            Assert.DoesNotContain("private User() { }", content);
+            Assert.DoesNotContain("public User() { }", content);
         }
     }
 }

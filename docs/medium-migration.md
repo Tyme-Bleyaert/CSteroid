@@ -285,11 +285,10 @@ await publisher.Publish(new DerivedOrderCreated(Guid.NewGuid()), CancellationTok
 // No IMessageHandler<OrderCreated> runs.
 ```
 
-No base-message handler or behavior runs. A concrete Publish use with no valid
-handler produces CSM018. An unknown route reached through an interface-held or
-otherwise unprovable message throws `InvalidOperationException`. A command sent
+No base-message handler or behavior runs. Publishing a message with no exact
+handlers completes without invoking a handler or behavior. A command sent
 through `Send` or `Stream` still requires exactly one handler for its exact concrete command
-type; do not expect a base command handler to absorb derived commands. A concrete
+type. Do not expect a base command handler to absorb derived commands. A concrete
 Stream use without a valid handler produces CSM021.
 
 `ICommand<TResponse>` is deliberately invariant. For example, an
@@ -316,13 +315,15 @@ MediatR's object-based `Send(object request)` escape hatch has no Medium
 equivalent. Introduce closed command contracts instead of relying on object-based
 request discovery or generic handler definitions.
 
-### Sequential ordinal Publish, failure, and cancellation
+### Sequential ordered Publish, failure, and cancellation
 
-Medium publishes sequentially in deterministic ordinal order by
-assembly-aware concrete handler identity. It awaits one handler before resolving
-and invoking the next. The sample names its handlers `FirstOrderCreatedHandler`
-and `SecondOrderCreatedHandler`; the first yields asynchronously, and the success
-trace shows that the second runs only after the first completes.
+Medium publishes sequentially in ascending `MessageHandlerAttribute.Order` order.
+The default is zero. Handlers with equal values run in ordinal order by
+assembly-aware concrete handler identity. Medium awaits one handler before
+resolving and invoking the next. The sample names its handlers
+`FirstOrderCreatedHandler` and `SecondOrderCreatedHandler`; the first yields
+asynchronously, and the success trace shows that the second runs only after the
+first completes.
 
 If the first handler throws, generator execution tests verify all of the following:
 
@@ -353,9 +354,7 @@ subscriber separately.
 - **Polymorphic dispatch:** base-class/interface fallback and covariance-based
   subscriber fan-out are intentionally absent. Publish the exact message type or
   invoke the required routes explicitly.
-- **Zero-handler notifications:** unlike MediatR's no-op publication, a concrete
-  Publish use without a valid handler is a compile-time CSM018 error. Unknown
-  runtime routes throw rather than silently completing.
+
 - **Parallel/custom publication:** only sequential fail-fast publication is
   supported. Do not preserve a custom publisher behind `IPublisher` and assume its
   ordering, exception aggregation, or concurrency survives.

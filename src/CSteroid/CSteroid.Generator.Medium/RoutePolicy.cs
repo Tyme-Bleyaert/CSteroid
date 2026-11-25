@@ -45,6 +45,9 @@ namespace CSteroid.Generator.Medium
                 if (result != 0)
                     return result;
                 result = left.Route.Kind.CompareTo(right.Route.Kind);
+                if (result != 0)
+                    return result;
+                result = left.Handler.Order.CompareTo(right.Handler.Order);
                 return result != 0
                     ? result
                     : string.CompareOrdinal(left.Handler.HandlerType.RouteKey, right.Handler.HandlerType.RouteKey);
@@ -149,6 +152,9 @@ namespace CSteroid.Generator.Medium
                     return null;
                 }
             }
+
+            if (HasValidHandlerContract(use.MessageType, null, RouteKind.Message))
+                return null;
 
             var properties = HandlerFixProperties(
                 use.MessageType,

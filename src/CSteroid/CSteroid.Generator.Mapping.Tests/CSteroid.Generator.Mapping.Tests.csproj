@@ -20,10 +20,22 @@
     <ProjectReference Include="..\CSteroid.Generator.Testing\CSteroid.Generator.Testing.csproj" />
     <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.dll" />
     <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.Mapping\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Mapping.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.Validation\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Validation.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.EFCore\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.EFCore.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.Dapper\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Dapper.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.CosmosDB\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.CosmosDB.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.MongoDB\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.MongoDB.dll" />
+    <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.PostgreSQL\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.PostgreSQL.dll" />
     <Reference Include="$(MSBuildThisFileDirectory)..\CSteroid.Generator.Shared\bin\$(Configuration)\netstandard2.0\CSteroid.Generator.Shared.dll" />
     <!-- Build-order only: the raw Reference paths above do not create project dependencies. -->
     <ProjectReference Include="..\CSteroid.Generator\CSteroid.Generator.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CSteroid.Generator.Mapping\CSteroid.Generator.Mapping.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.Validation\CSteroid.Generator.Validation.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.EFCore\CSteroid.Generator.EFCore.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.Dapper\CSteroid.Generator.Dapper.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.CosmosDB\CSteroid.Generator.CosmosDB.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.MongoDB\CSteroid.Generator.MongoDB.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\CSteroid.Generator.PostgreSQL\CSteroid.Generator.PostgreSQL.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\CSteroid.Generator.Shared\CSteroid.Generator.Shared.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
