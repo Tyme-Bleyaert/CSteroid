@@ -280,8 +280,11 @@ dotnet pack src/CSteroid/CSteroid.slnx -c Release
 ```
 
 `Version` defaults to `1.0.0` in `Directory.Build.props`; the publish workflow
-overrides it from the git tag (`git tag v1.2.0 && git push origin v1.2.0` publishes
-`1.2.0` to NuGet.org using the `NUGET_API_KEY` repository secret).
+overrides it from the version entered when the workflow is dispatched. Publishing
+uses NuGet.org Trusted Publishing: the manually approved `release` environment
+exchanges a GitHub OIDC token for a one-hour NuGet API key. The pinned login action
+masks the OIDC and NuGet credentials in workflow logs, so no long-lived NuGet
+credential is stored in GitHub.
 
 CI lives in `.github/workflows/`: `ci.yml` builds and tests on every push/PR.
 The manually dispatched `release.yml` packs and publishes after approval.

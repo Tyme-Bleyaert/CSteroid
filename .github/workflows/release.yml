@@ -89,11 +89,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # This line makes the job wait for manual approval, and is the ONLY
-    # place the NuGet key is available.
+    # The environment provides manual approval. Only this job can request an OIDC token.
     environment: release
     permissions:
       contents: write   # needed to create the tag and the release
+      id-token: write   # needed to exchange GitHub identity for a temporary NuGet key
 
     steps:
       - name: Download packages
@@ -108,9 +108,15 @@ jobs:
           dotnet-version: |
             10.0.x
 
+      - name: Log in to NuGet.org
+        id: login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push to NuGet.org
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
           dotnet nuget push "artifacts/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
