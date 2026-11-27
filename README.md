@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/Tyme-Bleyaert/CSteroid/actions/workflows/ci.yml/badge.svg)](https://github.com/Tyme-Bleyaert/CSteroid/actions/workflows/ci.yml)
 [![NuGet](https://img.shields.io/nuget/v/CSteroid.Core.svg?label=NuGet)](https://www.nuget.org/packages/CSteroid.Core)
-[![NuGet](https://img.shields.io/nuget/vpre/CSteroid.Core.svg?label=NuGet%20prerelease)](https://www.nuget.org/packages/CSteroid.Core)
 
 ![Kevin from The Office with the caption "Why burn tokens when Roslyn do trick"](assets/meme.png)
 
