@@ -11,8 +11,8 @@
 
   <ItemGroup>
     <!-- ValueTask, async streams, and the DI abstractions are not inbox on netstandard2.0. -->
-    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="11.0.0" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="11.0.0" />
     <PackageReference Include="System.Threading.Tasks.Extensions" Version="4.6.3" />
   </ItemGroup>
 
